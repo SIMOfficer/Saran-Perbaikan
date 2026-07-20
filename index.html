@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Sistem Saran Perbaikan - Bengkel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--primary:#c0392b;--dark:#2c3e50;--bg:#f4f6f8;--ok:#27ae60;--warn:#e67e22;}
+  *{box-sizing:border-box;font-family:'Segoe UI',Arial,sans-serif;}
+  body{margin:0;background:var(--bg);color:#222;}
+  header{background:var(--dark);color:#fff;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;}
+  header h1{font-size:18px;margin:0;}
+  nav{display:flex;gap:4px;background:#fff;padding:0 24px;border-bottom:1px solid #ddd;}
+  nav button{border:none;background:none;padding:14px 18px;cursor:pointer;font-size:14px;color:#555;border-bottom:3px solid transparent;}
+  nav button.active{color:var(--primary);border-color:var(--primary);font-weight:600;}
+  main{padding:24px;max-width:1100px;margin:0 auto;}
+  .card{background:#fff;border-radius:10px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px;color:#444;}
+  input,select,textarea{width:100%;padding:9px 10px;border:1px solid #ccc;border-radius:6px;font-size:14px;}
+  .req::after{content:" *";color:var(--primary);}
+  .row{display:flex;gap:12px;flex-wrap:wrap;}
+  .row>div{flex:1;min-width:160px;}
+  button.primary{background:var(--primary);color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:14px;margin-top:14px;}
+  button.secondary{background:#eee;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;margin-top:8px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
+  th,td{border:1px solid #e0e0e0;padding:8px;text-align:left;}
+  th{background:#fafafa;}
+  .badge{padding:3px 10px;border-radius:20px;font-size:12px;color:#fff;}
+  .badge.wait{background:var(--warn);}
+  .badge.ready{background:#2980b9;}
+  .badge.sent{background:var(--ok);}
+  .badge.followup{background:#8e44ad;}
+  .item-block{border:1px dashed #ccc;border-radius:8px;padding:12px;margin-top:10px;position:relative;}
+  .kpi{display:flex;gap:16px;flex-wrap:wrap;}
+  .kpi .box{flex:1;min-width:150px;background:#fff;border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  .kpi .box .num{font-size:26px;font-weight:700;color:var(--primary);}
+  .kpi .box .lbl{font-size:12px;color:#777;}
+  .note{font-size:12px;color:#888;margin-top:6px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🔧 Sistem Manajemen Saran Perbaikan</h1>
+  <select id="roleSwitch">
+    <option value="teknisi">Login sebagai: Teknisi</option>
+    <option value="partman">Login sebagai: Partman / Foreman</option>
+    <option value="sa">Login sebagai: Service Advisor</option>
+    <option value="kabengkel">Login sebagai: Kepala Bengkel</option>
+  </select>
+</header>
+
+<nav id="tabs"></nav>
+<main id="app"></main>
+
+<script>
+/* ============================================================
+   GANTI dengan URL Web App hasil deploy Google Apps Script:
+   contoh: https://script.google.com/macros/s/XXXXXXX/exec
+   ============================================================ */
+const API_URL = "https://script.google.com/macros/s/AKfycbyWb1fyKjQqjigkPWeCqYWGUePO_1mobVKYK8mnNRAO5Er1zXTXk-3x3GXVuw1TB6nPvw/exec";
+
+let currentRole = "teknisi";
+let currentDetailId = null;
+
+const TABS = {
+  teknisi:   [["input","Input Saran Baru"],["riwayat","Riwayat Saya"]],
+  partman:   [["antrian","Antrian Perlu Dilengkapi"]],
+  sa:        [["followup","Follow Up (H+3)"],["laporan","Kirim Report Customer"]],
+  kabengkel: [["dashboard","Dashboard"],["semua","Semua Kunjungan"]],
+};
+
+document.getElementById('roleSwitch').addEventListener('change', e=>{
+  currentRole = e.target.value; renderTabs();
+});
+
+function renderTabs(){
+  const nav = document.getElementById('tabs');
+  nav.innerHTML = '';
+  TABS[currentRole].forEach(([key,label],i)=>{
+    const b = document.createElement('button');
+    b.textContent = label;
+    if(i===0) b.classList.add('active');
+    b.onclick = ()=>{ [...nav.children].forEach(c=>c.classList.remove('active')); b.classList.add('active'); render(key); };
+    nav.appendChild(b);
+  });
+  render(TABS[currentRole][0][0]);
+}
+
+async function api(action, method='GET', body=null){
+  if(API_URL.includes('PASTE_URL')){
+    alert('Prototype mode: API_URL belum di-set. Ini hanya tampilan UI. Set API_URL ke Web App Apps Script untuk fungsi penuh.');
+    return { demo:true };
+  }
+  if(method==='GET'){
+    const url = API_URL + '?action=' + action + (body? '&'+new URLSearchParams(body).toString():'');
+    return fetch(url).then(r=>r.json());
+  }
+  return fetch(API_URL, { method:'POST', body: JSON.stringify({action, ...body}) }).then(r=>r.json());
+}
+
+function render(view){
+  const app = document.getElementById('app');
+  if(view==='input') return renderInputTeknisi(app);
+  if(view==='riwayat') return renderRiwayatTeknisi(app);
+  if(view==='antrian') return renderAntrianPartman(app);
+  if(view==='followup') return renderFollowUp(app);
+  if(view==='laporan') return renderLaporan(app);
+  if(view==='dashboard') return renderDashboard(app);
+  if(view==='semua') return renderSemua(app);
+}
+
+/* ---------- TEKNISI: input saran ---------- */
+let itemCount = 0;
+function renderInputTeknisi(app){
+  itemCount = 0;
+  app.innerHTML = `
+  <div class="card">
+    <h3>Data Unit / Customer</h3>
+    <div class="row">
+      <div><label class="req">No. Polisi</label><input id="noPolisi" placeholder="D 1234 ABC"></div>
+      <div><label class="req">Nama Customer</label><input id="namaCustomer"></div>
+      <div><label>No. HP Customer</label><input id="noHp"></div>
+    </div>
+    <div class="row">
+      <div><label class="req">Service Advisor</label><input id="sa" placeholder="Nama SA"></div>
+      <div><label class="req">Teknisi</label><input id="teknisi" placeholder="Nama Anda"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Temuan / Saran Part <span class="note">(hanya isi jika part TIDAK tersedia di gudang)</span></h3>
+    <div id="itemsWrap"></div>
+    <button class="secondary" onclick="addItemBlock()">+ Tambah Komponen</button>
+  </div>
+
+  <button class="primary" onclick="submitKunjungan()">Simpan &amp; Kirim ke Partman</button>
+  `;
+  addItemBlock();
+}
+function addItemBlock(){
+  itemCount++;
+  const id = 'item'+itemCount;
+  const wrap = document.getElementById('itemsWrap');
+  const div = document.createElement('div');
+  div.className='item-block'; div.id=id;
+  div.innerHTML = `
+    <div class="row">
+      <div><label class="req">Nama Komponen/Part</label><input class="f-nama"></div>
+      <div><label class="req">Qty</label><input class="f-qty" type="number" min="1" value="1"></div>
+    </div>
+    <label>Keterangan (jika ada)</label>
+    <textarea class="f-ket" rows="2" placeholder="cth: aus, bocor, patah dudukan..."></textarea>
+    <label>Foto komponen rusak (opsional)</label>
+    <input class="f-foto" type="file" accept="image/*">
+  `;
+  document.getElementById('itemsWrap').appendChild(div);
+}
+async function submitKunjungan(){
+  const items = [...document.querySelectorAll('.item-block')].map(b=>({
+    namaKomponen: b.querySelector('.f-nama').value,
+    qty: b.querySelector('.f-qty').value,
+    keterangan: b.querySelector('.f-ket').value
+  })).filter(it=>it.namaKomponen && it.qty);
+
+  if(!document.getElementById('noPolisi').value || !items.length){
+    alert('No. Polisi dan minimal 1 komponen (nama + qty) wajib diisi'); return;
+  }
+  const body = {
+    noPolisi: document.getElementById('noPolisi').value,
+    namaCustomer: document.getElementById('namaCustomer').value,
+    noHp: document.getElementById('noHp').value,
+    sa: document.getElementById('sa').value,
+    teknisi: document.getElementById('teknisi').value,
+    items
+  };
+  const res = await api('createKunjungan','POST',body);
+  alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);
+}
+
+/* ---------- PARTMAN / FOREMAN: lengkapi antrian ---------- */
+async function renderAntrianPartman(app){
+  app.innerHTML = `<div class="card"><h3>Antrian Item Menunggu Kelengkapan</h3><div id="list">Memuat...</div></div>`;
+  const rows = await api('listKunjungan');
+  const list = document.getElementById('list');
+  if(rows.demo){ list.innerHTML='<p class="note">Demo mode - hubungkan API untuk data real.</p>'; return; }
+  const waiting = rows.filter(r=>r.Status==='Menunggu Partman');
+  if(!waiting.length){ list.innerHTML='<p>Tidak ada antrian.</p>'; return; }
+  list.innerHTML = waiting.map(r=>`
+    <div class="item-block">
+      <b>${r.No_Polisi}</b> - ${r.Nama_Customer} <span class="badge wait">Menunggu Partman</span>
+      <br><button class="secondary" onclick="openDetail('${r.ID_Kunjungan}')">Lengkapi Data Part</button>
+    </div>`).join('');
+}
+async function openDetail(id){
+  currentDetailId = id;
+  const detail = await api('getKunjungan','GET',{id});
+  const app = document.getElementById('app');
+  app.innerHTML = `<div class="card"><h3>Lengkapi Data Part - ${id}</h3><div id="itemsDetail"></div>
+    <button class="primary" onclick="finishAndGenerate()">Selesai &amp; Buat Report PDF</button></div>`;
+  const wrap = document.getElementById('itemsDetail');
+  (detail.items||[]).forEach(it=>{
+    const div = document.createElement('div');
+    div.className='item-block';
+    div.innerHTML = `
+      <b>${it.Nama_Komponen}</b> (Qty: ${it.Qty}) - ${it.Keterangan_Teknisi||''}
+      <div class="row">
+        <div><label>Nomor Part</label><input class="p-nomor" value="${it.Nomor_Part||''}"></div>
+        <div><label>Estimasi Harga (Rp)</label><input class="p-harga" type="number" value="${it.Estimasi_Harga||''}"></div>
+        <div><label>Ketersediaan</label>
+          <select class="p-ketersediaan">
+            <option ${it.Ketersediaan_Part==='Ready'?'selected':''}>Ready</option>
+            <option ${it.Ketersediaan_Part==='Indent'?'selected':''}>Indent</option>
+            <option ${it.Ketersediaan_Part==='Tidak Tersedia (perlu order)'?'selected':''}>Tidak Tersedia (perlu order)</option>
+          </select>
+        </div>
+      </div>
+      <label>Keterangan tambahan Partman/Foreman</label>
+      <textarea class="p-ket" rows="2">${it.Keterangan_Partman||''}</textarea>
+      <button class="secondary" onclick="saveItemPartman('${it.ID_Item}', this)">Simpan Item</button>
+    `;
+    wrap.appendChild(div);
+  });
+}
+async function saveItemPartman(idItem, btn){
+  const block = btn.parentElement;
+  await api('updatePartman','POST',{
+    idItem,
+    nomorPart: block.querySelector('.p-nomor').value,
+    estimasiHarga: block.querySelector('.p-harga').value,
+    ketersediaanPart: block.querySelector('.p-ketersediaan').value,
+    keteranganPartman: block.querySelector('.p-ket').value
+  });
+  btn.textContent = 'Tersimpan ✓';
+}
+async function finishAndGenerate(){
+  const res = await api('generateReport','POST',{idKunjungan: currentDetailId});
+  alert(res.demo ? 'Demo: PDF akan dibuat setelah API terhubung.' : 'Report dibuat: '+res.pdfUrl);
+}
+
+/* ---------- SA: follow up & laporan ---------- */
+async function renderFollowUp(app){
+  app.innerHTML = `<div class="card"><h3>Follow Up H+3</h3><div id="list">Memuat...</div></div>`;
+  const rows = await api('listKunjungan');
+  const list = document.getElementById('list');
+  if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
+  const due = rows.filter(r=>r.Status==='Report Terkirim' && new Date(r.Tanggal_FollowUp_Rencana) <= new Date());
+  list.innerHTML = due.length ? due.map(r=>`
+    <div class="item-block">
+      <b>${r.No_Polisi}</b> - ${r.Nama_Customer} (SA: ${r.SA})
+      <div class="row">
+        <div><label>Status Follow Up</label>
+          <select id="fu-${r.ID_Kunjungan}">
+            <option>Deal</option><option>Tidak Deal</option><option>Reschedule</option>
+          </select>
+        </div>
+        <div><label>Catatan</label><input id="note-${r.ID_Kunjungan}"></div>
+      </div>
+      <button class="secondary" onclick="saveFollowUp('${r.ID_Kunjungan}')">Simpan</button>
+    </div>`).join('') : '<p>Tidak ada follow up jatuh tempo hari ini.</p>';
+}
+async function saveFollowUp(id){
+  await api('updateFollowUp','POST',{
+    idKunjungan:id,
+    statusFollowUp: document.getElementById('fu-'+id).value,
+    catatan: document.getElementById('note-'+id).value
+  });
+  alert('Follow up tersimpan');
+}
+async function renderLaporan(app){
+  app.innerHTML = `<div class="card"><h3>Kunjungan Siap Dikirim ke Customer</h3><div id="list">Memuat...</div></div>`;
+  const rows = await api('listKunjungan');
+  const list = document.getElementById('list');
+  if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
+  list.innerHTML = rows.map(r=>`
+    <div class="item-block">${r.No_Polisi} - ${r.Nama_Customer}
+    <span class="badge sent">${r.Status}</span>
+    ${r.PDF_URL ? `<br><a href="${r.PDF_URL}" target="_blank">Buka PDF Report</a>` : ''}</div>`).join('');
+}
+
+/* ---------- KEPALA BENGKEL: dashboard ---------- */
+async function renderDashboard(app){
+  app.innerHTML = `<div id="dash">Memuat...</div>`;
+  const d = await api('dashboard');
+  const dash = document.getElementById('dash');
+  if(d.demo){ dash.innerHTML='<p class="note">Demo mode - hubungkan API untuk data real.</p>'; return; }
+  let html = `<div class="kpi">
+    <div class="box"><div class="num">${d.totalCustomer.hariIni}</div><div class="lbl">Customer Hari Ini</div></div>
+    <div class="box"><div class="num">${d.totalCustomer.mingguIni}</div><div class="lbl">Customer Minggu Ini</div></div>
+    <div class="box"><div class="num">${d.totalCustomer.bulanIni}</div><div class="lbl">Customer Bulan Ini</div></div>
+    <div class="box"><div class="num">${d.totalKunjungan}</div><div class="lbl">Total Kunjungan</div></div>
+  </div>
+  <div class="card"><h3>Rekap per Service Advisor</h3>
+  <table><tr><th>SA</th><th>Saran Hari Ini</th><th>Saran Minggu Ini</th><th>Saran Bulan Ini</th><th>Deal</th><th>Tidak Deal</th></tr>`;
+  Object.entries(d.perSA).forEach(([sa,v])=>{
+    html += `<tr><td>${sa}</td><td>${v.hari}</td><td>${v.minggu}</td><td>${v.bulan}</td><td>${v.deal}</td><td>${v.tidakDeal}</td></tr>`;
+  });
+  html += `</table></div>`;
+  dash.innerHTML = html;
+}
+async function renderSemua(app){
+  app.innerHTML = `<div class="card"><h3>Semua Kunjungan</h3><div id="list">Memuat...</div></div>`;
+  const rows = await api('listKunjungan');
+  const list = document.getElementById('list');
+  if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
+  list.innerHTML = `<table><tr><th>No Polisi</th><th>Customer</th><th>SA</th><th>Teknisi</th><th>Status</th></tr>` +
+    rows.map(r=>`<tr><td>${r.No_Polisi}</td><td>${r.Nama_Customer}</td><td>${r.SA}</td><td>${r.Teknisi}</td><td>${r.Status}</td></tr>`).join('') +
+    `</table>`;
+}
+
+renderTabs();
+</script>
+</body>
+</html>
