@@ -42,6 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1IP_2tMxMMXprOvNy9HbsTBrS4LK2lw6cDfV2UThQ1VQ'; // Template dokumen report
+const CODE_VERSION = 'v3-clear-placeholder-text'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -96,6 +97,7 @@ function doGet(e) {
       case 'listKunjungan': result = listKunjungan(e.parameter); break;
       case 'getKunjungan': result = getKunjunganDetail(e.parameter.id); break;
       case 'dashboard': result = getDashboard(e.parameter); break;
+      case 'version': result = { version: CODE_VERSION }; break;
       default: result = { error: 'Unknown action' };
     }
     return jsonOut(result);
@@ -211,6 +213,27 @@ function rowToObj(header, row) {
   return obj;
 }
 
+/** Sisipkan tabel tepat sebelum paragraf yang mengandung `placeholder`
+ *  (mis. "{{TABEL_ITEM}}"), bukan selalu di akhir dokumen. Teks paragraf
+ *  placeholder dikosongkan (bukan dihapus elemennya) dan disisakan sebagai
+ *  baris kosong setelah tabel - Google Docs tidak mengizinkan sebuah body
+ *  section diakhiri oleh tabel, jadi paragraf itu wajib tetap ada kalau
+ *  placeholder-nya berada di baris terakhir dokumen. Jika placeholder tidak
+ *  ditemukan, tabel ditambahkan di akhir dokumen sebagai fallback. */
+function insertTableAtPlaceholder(body, placeholder, tableData) {
+  const found = body.findText(placeholder);
+  if (!found) return body.appendTable(tableData);
+
+  let el = found.getElement();
+  while (el.getParent() && el.getParent().getType() !== DocumentApp.ElementType.BODY_SECTION) {
+    el = el.getParent();
+  }
+  const index = body.getChildIndex(el);
+  const table = body.insertTable(index, tableData);
+  el.editAsText().setText('');
+  return table;
+}
+
 /** ============ GENERATE PDF REPORT UNTUK CUSTOMER ============ */
 function generateReport(idKunjungan) {
   const detail = getKunjunganDetail(idKunjungan);
@@ -231,7 +254,6 @@ function generateReport(idKunjungan) {
   body.replaceText('{{SA}}', kj.SA);
   body.replaceText('{{TEKNISI}}', kj.Teknisi);
 
-  // Cari placeholder tabel {{TABEL_ITEM}} lalu isi manual, atau bangun tabel baru
   let total = 0;
   const tableData = [['No', 'Komponen', 'Qty', 'No. Part', 'Est. Harga', 'Ketersediaan', 'Ket.']];
   items.forEach((it, i) => {
@@ -241,7 +263,8 @@ function generateReport(idKunjungan) {
       harga ? harga.toLocaleString('id-ID') : '-', it.Ketersediaan_Part || '-',
       it.Keterangan_Partman || it.Keterangan_Teknisi || '-']);
   });
-  const table = body.appendTable(tableData);
+  // Sisipkan tabel tepat di posisi placeholder {{TABEL_ITEM}} (fallback: akhir dokumen)
+  const table = insertTableAtPlaceholder(body, '{{TABEL_ITEM}}', tableData);
   body.replaceText('{{TOTAL_ESTIMASI}}', 'Rp ' + total.toLocaleString('id-ID'));
 
   // Lampirkan foto komponen (jika ada) di halaman berikut

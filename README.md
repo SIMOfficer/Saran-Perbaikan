@@ -50,7 +50,7 @@ Alur data: `Browser (GitHub Pages) → Google Apps Script Web App (API) → Goog
 ## Catatan Prototype
 - Belum ada sistem login/otentikasi sungguhan — role dipilih manual via dropdown di kanan atas (cocok untuk uji coba internal, sebelum nanti ditambah Google Sign-In / OAuth kalau mau produksi)
 - Upload foto di frontend belum disambungkan ke `uploadFoto` endpoint — perlu ditambahkan konversi file ke base64 sebelum dikirim (rangka fungsinya sudah ada di `Code.gs`)
-- Field placeholder tabel item di template Docs (`{{TABEL_ITEM}}`) di-generate otomatis sebagai tabel baru oleh `generateReport()` — pastikan template Docs punya cukup ruang kosong
+- Placeholder tabel item di template Docs (`{{TABEL_ITEM}}`) harus berada sendirian di barisnya sendiri — `generateReport()` akan mengganti seluruh paragraf tersebut dengan tabel item. Jika placeholder tidak ditemukan, tabel otomatis ditambahkan di akhir dokumen sebagai fallback
 
 ## Struktur Data
 
