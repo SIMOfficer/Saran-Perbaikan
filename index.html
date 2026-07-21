@@ -31,6 +31,10 @@
   .badge.sent{background:var(--ok);}
   .badge.followup{background:#8e44ad;}
   .item-block{border:1px dashed #ccc;border-radius:8px;padding:12px;margin-top:10px;position:relative;}
+  .items-table td,.items-table th{vertical-align:middle;}
+  .items-table td input{margin:0;}
+  .items-table td:nth-child(2) input{width:70px;}
+  .row-remove{background:none;border:none;color:var(--primary);font-size:18px;line-height:1;cursor:pointer;padding:4px 8px;margin:0;}
   .kpi{display:flex;gap:16px;flex-wrap:wrap;}
   .kpi .box{flex:1;min-width:150px;background:#fff;border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.08);}
   .kpi .box .num{font-size:26px;font-weight:700;color:var(--primary);}
@@ -130,7 +134,20 @@ function renderInputTeknisi(app){
 
   <div class="card">
     <h3>Temuan / Saran Part <span class="note">(hanya isi jika part TIDAK tersedia di gudang)</span></h3>
-    <div id="itemsWrap"></div>
+    <div style="overflow-x:auto;">
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th>Nama Komponen/Part</th>
+            <th>Qty</th>
+            <th>Keterangan (Jika Ada)</th>
+            <th>Foto Komponen Rusak (Opsional)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="itemsWrap"></tbody>
+      </table>
+    </div>
     <button class="secondary" onclick="addItemBlock()">+ Tambah Komponen</button>
   </div>
 
@@ -142,40 +159,65 @@ function addItemBlock(){
   itemCount++;
   const id = 'item'+itemCount;
   const wrap = document.getElementById('itemsWrap');
-  const div = document.createElement('div');
-  div.className='item-block'; div.id=id;
-  div.innerHTML = `
-    <div class="row">
-      <div><label class="req">Nama Komponen/Part</label><input class="f-nama"></div>
-      <div><label class="req">Qty</label><input class="f-qty" type="number" min="1" value="1"></div>
-    </div>
-    <label>Keterangan (jika ada)</label>
-    <textarea class="f-ket" rows="2" placeholder="cth: aus, bocor, patah dudukan..."></textarea>
-    <label>Foto komponen rusak (opsional)</label>
-    <input class="f-foto" type="file" accept="image/*">
+  const tr = document.createElement('tr');
+  tr.id=id;
+  tr.innerHTML = `
+    <td><input class="f-nama"></td>
+    <td><input class="f-qty" type="number" min="1" value="1"></td>
+    <td><input class="f-ket" placeholder="cth: aus, bocor, patah dudukan..."></td>
+    <td><input class="f-foto" type="file" accept="image/*"></td>
+    <td><button type="button" class="row-remove" onclick="this.closest('tr').remove()" title="Hapus baris">&times;</button></td>
   `;
-  document.getElementById('itemsWrap').appendChild(div);
+  document.getElementById('itemsWrap').appendChild(tr);
 }
-async function submitKunjungan(){
-  const items = [...document.querySelectorAll('.item-block')].map(b=>({
-    namaKomponen: b.querySelector('.f-nama').value,
-    qty: b.querySelector('.f-qty').value,
-    keterangan: b.querySelector('.f-ket').value
-  })).filter(it=>it.namaKomponen && it.qty);
+function fileToBase64(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result.split(',')[1]);
+    reader.onerror = ()=> reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
-  if(!document.getElementById('noPolisi').value || !items.length){
-    alert('No. Polisi dan minimal 1 komponen (nama + qty) wajib diisi'); return;
+async function submitKunjungan(){
+  const blocks = [...document.querySelectorAll('#itemsWrap tr')];
+  const btn = document.querySelector('main button.primary');
+  if(btn){ btn.disabled = true; btn.textContent = 'Menyimpan...'; }
+  try{
+    const items = [];
+    for(const b of blocks){
+      const namaKomponen = b.querySelector('.f-nama').value;
+      const qty = b.querySelector('.f-qty').value;
+      if(!namaKomponen || !qty) continue;
+      const item = { namaKomponen, qty, keterangan: b.querySelector('.f-ket').value };
+      const file = b.querySelector('.f-foto').files[0];
+      if(file){
+        if(btn) btn.textContent = 'Mengupload foto...';
+        const base64Data = await fileToBase64(file);
+        const uploadRes = await api('uploadFoto','POST',{ base64Data, mimeType: file.type, fileName: file.name });
+        if(uploadRes && uploadRes.url) item.fotoUrl = uploadRes.url;
+        else if(uploadRes && uploadRes.error) alert('Gagal upload foto "'+file.name+'": '+uploadRes.error);
+        if(btn) btn.textContent = 'Menyimpan...';
+      }
+      items.push(item);
+    }
+
+    if(!document.getElementById('noPolisi').value || !items.length){
+      alert('No. Polisi dan minimal 1 komponen (nama + qty) wajib diisi'); return;
+    }
+    const body = {
+      noPolisi: document.getElementById('noPolisi').value,
+      namaCustomer: document.getElementById('namaCustomer').value,
+      noHp: document.getElementById('noHp').value,
+      sa: document.getElementById('sa').value,
+      teknisi: document.getElementById('teknisi').value,
+      items
+    };
+    const res = await api('createKunjungan','POST',body);
+    alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = 'Simpan & Kirim ke Partman'; }
   }
-  const body = {
-    noPolisi: document.getElementById('noPolisi').value,
-    namaCustomer: document.getElementById('namaCustomer').value,
-    noHp: document.getElementById('noHp').value,
-    sa: document.getElementById('sa').value,
-    teknisi: document.getElementById('teknisi').value,
-    items
-  };
-  const res = await api('createKunjungan','POST',body);
-  alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);
 }
 
 /* ---------- PARTMAN / FOREMAN: lengkapi antrian ---------- */
