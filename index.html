@@ -156,26 +156,54 @@ function addItemBlock(){
   `;
   document.getElementById('itemsWrap').appendChild(div);
 }
-async function submitKunjungan(){
-  const items = [...document.querySelectorAll('.item-block')].map(b=>({
-    namaKomponen: b.querySelector('.f-nama').value,
-    qty: b.querySelector('.f-qty').value,
-    keterangan: b.querySelector('.f-ket').value
-  })).filter(it=>it.namaKomponen && it.qty);
+function fileToBase64(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result.split(',')[1]);
+    reader.onerror = ()=> reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
-  if(!document.getElementById('noPolisi').value || !items.length){
-    alert('No. Polisi dan minimal 1 komponen (nama + qty) wajib diisi'); return;
+async function submitKunjungan(){
+  const blocks = [...document.querySelectorAll('.item-block')];
+  const btn = document.querySelector('main button.primary');
+  if(btn){ btn.disabled = true; btn.textContent = 'Menyimpan...'; }
+  try{
+    const items = [];
+    for(const b of blocks){
+      const namaKomponen = b.querySelector('.f-nama').value;
+      const qty = b.querySelector('.f-qty').value;
+      if(!namaKomponen || !qty) continue;
+      const item = { namaKomponen, qty, keterangan: b.querySelector('.f-ket').value };
+      const file = b.querySelector('.f-foto').files[0];
+      if(file){
+        if(btn) btn.textContent = 'Mengupload foto...';
+        const base64Data = await fileToBase64(file);
+        const uploadRes = await api('uploadFoto','POST',{ base64Data, mimeType: file.type, fileName: file.name });
+        if(uploadRes && uploadRes.url) item.fotoUrl = uploadRes.url;
+        else if(uploadRes && uploadRes.error) alert('Gagal upload foto "'+file.name+'": '+uploadRes.error);
+        if(btn) btn.textContent = 'Menyimpan...';
+      }
+      items.push(item);
+    }
+
+    if(!document.getElementById('noPolisi').value || !items.length){
+      alert('No. Polisi dan minimal 1 komponen (nama + qty) wajib diisi'); return;
+    }
+    const body = {
+      noPolisi: document.getElementById('noPolisi').value,
+      namaCustomer: document.getElementById('namaCustomer').value,
+      noHp: document.getElementById('noHp').value,
+      sa: document.getElementById('sa').value,
+      teknisi: document.getElementById('teknisi').value,
+      items
+    };
+    const res = await api('createKunjungan','POST',body);
+    alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = 'Simpan & Kirim ke Partman'; }
   }
-  const body = {
-    noPolisi: document.getElementById('noPolisi').value,
-    namaCustomer: document.getElementById('namaCustomer').value,
-    noHp: document.getElementById('noHp').value,
-    sa: document.getElementById('sa').value,
-    teknisi: document.getElementById('teknisi').value,
-    items
-  };
-  const res = await api('createKunjungan','POST',body);
-  alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);
 }
 
 /* ---------- PARTMAN / FOREMAN: lengkapi antrian ---------- */

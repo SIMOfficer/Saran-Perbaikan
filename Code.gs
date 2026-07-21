@@ -43,6 +43,17 @@ const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Goo
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1IP_2tMxMMXprOvNy9HbsTBrS4LK2lw6cDfV2UThQ1VQ'; // Template dokumen report
 
+// Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
+// supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
+const HEADERS = {
+  Kunjungan: ['ID_Kunjungan','Timestamp','Tanggal_Masuk','No_Polisi','Nama_Customer',
+    'No_HP_Customer','SA','Teknisi','Status','PDF_URL','Tanggal_FollowUp_Rencana',
+    'Status_FollowUp','Catatan_FollowUp','Tanggal_FollowUp_Aktual'],
+  Item_Saran: ['ID_Item','ID_Kunjungan','Nama_Komponen','Qty','Keterangan_Teknisi',
+    'Nomor_Part','Estimasi_Harga','Ketersediaan_Part','Keterangan_Partman','Foto_URL',
+    'Diisi_Teknisi_At','Diisi_Partman_At']
+};
+
 function getSS() {
   return SpreadsheetApp.openById(SPREADSHEET_ID);
 }
@@ -50,23 +61,30 @@ function getSheet(name) {
   const ss = getSS();
   let sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
+  ensureHeader(sh, HEADERS[name]);
   return sh;
 }
 
-/** Setup awal - jalankan sekali manual dari editor Apps Script */
+/** Pastikan row 1 selalu berisi header yang benar. Jika hilang/salah (mis. sheet
+ *  baru langsung diisi data tanpa setupSheets()), sisipkan header baru di row 1
+ *  dan dorong data yang sudah ada ke bawah, alih-alih membiarkan baris data
+ *  tersalah-baca sebagai header oleh rowToObj(). */
+function ensureHeader(sh, headers) {
+  if (!headers) return;
+  const lastRow = sh.getLastRow();
+  const firstRow = lastRow > 0 ? sh.getRange(1, 1, 1, headers.length).getValues()[0] : [];
+  const isCorrect = headers.every((h, i) => firstRow[i] === h);
+  if (isCorrect) return;
+  if (lastRow > 0) sh.insertRowBefore(1);
+  sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+}
+
+/** Setup awal - jalankan sekali manual dari editor Apps Script.
+ *  Sebenarnya opsional sekarang karena getSheet() otomatis memvalidasi/memulihkan
+ *  header setiap kali dipanggil, tapi tetap disediakan agar sesuai langkah di README. */
 function setupSheets() {
-  const kunjungan = getSheet('Kunjungan');
-  if (kunjungan.getLastRow() === 0) {
-    kunjungan.appendRow(['ID_Kunjungan','Timestamp','Tanggal_Masuk','No_Polisi','Nama_Customer',
-      'No_HP_Customer','SA','Teknisi','Status','PDF_URL','Tanggal_FollowUp_Rencana',
-      'Status_FollowUp','Catatan_FollowUp','Tanggal_FollowUp_Aktual']);
-  }
-  const item = getSheet('Item_Saran');
-  if (item.getLastRow() === 0) {
-    item.appendRow(['ID_Item','ID_Kunjungan','Nama_Komponen','Qty','Keterangan_Teknisi',
-      'Nomor_Part','Estimasi_Harga','Ketersediaan_Part','Keterangan_Partman','Foto_URL',
-      'Diisi_Teknisi_At','Diisi_Partman_At']);
-  }
+  getSheet('Kunjungan');
+  getSheet('Item_Saran');
 }
 
 /** ============ ENTRY POINTS ============ */
