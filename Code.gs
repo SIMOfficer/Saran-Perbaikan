@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1IP_2tMxMMXprOvNy9HbsTBrS4LK2lw6cDfV2UThQ1VQ'; // Template dokumen report
-const CODE_VERSION = 'v7-hybrid-health-check'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v8-special-service-campaign'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -56,7 +56,8 @@ const HEADERS = {
     'KampasRem_Status','KampasRem_Keterangan','KampasRem_Harga',
     'Wiper_Status','Wiper_Keterangan','Wiper_Harga',
     'Lampu_Status','Lampu_Keterangan','Lampu_Harga',
-    'Mobil_Hybrid','SBE_50K_100K','Mobil_2_5_Tahun','HHC','HHC_Hasil'],
+    'Mobil_Hybrid','SBE_50K_100K','Mobil_2_5_Tahun','HHC','HHC_Hasil',
+    'SSC_Terlibat'],
   // "Nama Parts" di Saran Perbaikan - Harga_Satuan_Teknisi adalah estimasi harga part dari
   // Teknisi sendiri saat input awal, terpisah dari Estimasi_Harga yang diisi Partman belakangan.
   Item_Saran: ['ID_Item','ID_Kunjungan','Nama_Komponen','Qty','Keterangan_Teknisi',
@@ -64,9 +65,11 @@ const HEADERS = {
     'Diisi_Teknisi_At','Diisi_Partman_At','Harga_Satuan_Teknisi'],
   // "Nama Jasa" di Saran Perbaikan - estimasi biaya jasa/pemasangan, terpisah dari harga part.
   Item_Jasa: ['ID_Jasa','ID_Kunjungan','Nama_Jasa','Waktu','Harga_Satuan','Keterangan','Diisi_Teknisi_At'],
+  // Daftar SSC per kunjungan (1 kunjungan bisa ikut beberapa campaign sekaligus).
+  Item_SSC: ['ID_SSC','ID_Kunjungan','SSC','Status','Alasan','Diisi_Teknisi_At'],
   // Setiap kolom = 1 daftar pilihan dropdown (baris di bawah header = isi pilihan).
   // Kolom bisa punya jumlah baris berbeda-beda, sel kosong akan diabaikan.
-  MasterData: ['Tipe_Mobil','Tipe_Service','Service_Advisor','Teknisi']
+  MasterData: ['Tipe_Mobil','Tipe_Service','Service_Advisor','Teknisi','SSC','Alasan_SSC']
 };
 
 function getSS() {
@@ -111,6 +114,7 @@ function setupSheets() {
   getSheet('Kunjungan');
   getSheet('Item_Saran');
   getSheet('Item_Jasa');
+  getSheet('Item_SSC');
   getSheet('MasterData');
 }
 
@@ -142,6 +146,7 @@ function doPost(e) {
       case 'createKunjungan': result = createKunjungan(body); break;
       case 'addItemSaran': result = addItemSaran(body); break;
       case 'addItemJasa': result = addItemJasa(body); break;
+      case 'addItemSSC': result = addItemSSC(body); break;
       case 'updatePartman': result = updatePartmanItem(body); break;
       case 'uploadFoto': result = uploadFoto(body); break;
       case 'generateReport': result = generateReport(body.idKunjungan); break;
@@ -177,7 +182,8 @@ function createKunjungan(body) {
     kampasRem.status || 'OK', kampasRem.keterangan || '', kampasRem.harga || '',
     wiper.status || 'OK', wiper.keterangan || '', wiper.harga || '',
     lampu.status || 'OK', lampu.keterangan || '', lampu.harga || '',
-    hhc.mobilHybrid || 'No', hhc.sbe50k100k || '', hhc.mobil2to5Tahun || '', hhc.hhc || '', hhc.hasil || '']);
+    hhc.mobilHybrid || 'No', hhc.sbe50k100k || '', hhc.mobil2to5Tahun || '', hhc.hhc || '', hhc.hasil || '',
+    body.sscTerlibat || 'No']);
 
   // item-item Parts (wajib: namaKomponen, qty; opsional: keterangan, hargaSatuan, fotoUrl)
   if (body.items && body.items.length) {
@@ -186,6 +192,10 @@ function createKunjungan(body) {
   // item-item Jasa (wajib: namaJasa; opsional: waktu, hargaSatuan, keterangan)
   if (body.itemsJasa && body.itemsJasa.length) {
     body.itemsJasa.forEach(it => addItemJasa({ idKunjungan: id, ...it }));
+  }
+  // item-item SSC (wajib: ssc; opsional: status, alasan)
+  if (body.itemsSSC && body.itemsSSC.length) {
+    body.itemsSSC.forEach(it => addItemSSC({ idKunjungan: id, ...it }));
   }
   return { success: true, idKunjungan: id };
 }
@@ -212,6 +222,17 @@ function addItemJasa(body) {
   sh.appendRow([id, body.idKunjungan, body.namaJasa, body.waktu || '', body.hargaSatuan || '',
     body.keterangan || '', new Date()]);
   return { success: true, idJasa: id };
+}
+
+/** Teknisi tambah 1 baris SSC ke kunjungan yang sudah ada */
+function addItemSSC(body) {
+  if (!body.ssc) {
+    return { error: 'SSC wajib diisi' };
+  }
+  const sh = getSheet('Item_SSC');
+  const id = 'SSC-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000);
+  sh.appendRow([id, body.idKunjungan, body.ssc, body.status || '', body.alasan || '', new Date()]);
+  return { success: true, idSSC: id };
 }
 
 /** ============ PARTMAN / FOREMAN: lengkapi data part ============ */
@@ -284,7 +305,12 @@ function getKunjunganDetail(id) {
   const headerJasa = dataJasa.shift();
   const itemsJasa = dataJasa.map(r => rowToObj(headerJasa, r)).filter(it => it.ID_Kunjungan === id);
 
-  return { kunjungan: kj, items: items, itemsJasa: itemsJasa };
+  const shSSC = getSheet('Item_SSC');
+  const dataSSC = shSSC.getDataRange().getValues();
+  const headerSSC = dataSSC.shift();
+  const itemsSSC = dataSSC.map(r => rowToObj(headerSSC, r)).filter(it => it.ID_Kunjungan === id);
+
+  return { kunjungan: kj, items: items, itemsJasa: itemsJasa, itemsSSC: itemsSSC };
 }
 
 function rowToObj(header, row) {

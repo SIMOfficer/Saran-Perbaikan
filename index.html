@@ -120,7 +120,7 @@ let masterData = null;
 async function loadMasterData(){
   if(masterData) return masterData;
   const md = await api('masterData');
-  masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[] };
+  masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[] };
   return masterData;
 }
 function escapeHtml(s){
@@ -128,6 +128,17 @@ function escapeHtml(s){
 }
 function optionList(values){
   return '<option value="">-- Pilih --</option>' + (values||[]).map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+}
+function optionListWithOther(values){
+  return optionList(values) + '<option value="Others">Others</option>';
+}
+function toggleOther(selectEl){
+  const otherInput = selectEl.nextElementSibling;
+  otherInput.style.display = selectEl.value === 'Others' ? '' : 'none';
+  if(selectEl.value !== 'Others') otherInput.value = '';
+}
+function readDropdownWithOther(selectEl){
+  return selectEl.value === 'Others' ? selectEl.nextElementSibling.value : selectEl.value;
 }
 function checklistRow(key, label){
   return `
@@ -308,10 +319,48 @@ async function renderInputTeknisi(app){
     </div>
   </div>
 
+  <div class="card">
+    <h3>Special Service Campaign</h3>
+    <div class="row">
+      <div><label>Terlibat</label>
+        <select id="sscTerlibat" onchange="toggleSSC()"><option value="No">No</option><option value="Yes">Yes</option></select>
+      </div>
+    </div>
+    <div id="ssc-block" style="display:none">
+      <p class="note">*muncul jika memilih Yes</p>
+      <div style="overflow-x:auto;">
+        <table class="items-table">
+          <thead><tr><th>SSC</th><th>Status</th><th>Alasan</th><th></th></tr></thead>
+          <tbody id="sscWrap"></tbody>
+        </table>
+      </div>
+      <button class="secondary" onclick="addSSCRow()">+ Tambah SSC</button>
+    </div>
+  </div>
+
   <button class="primary" onclick="submitKunjungan()">Simpan &amp; Kirim ke Partman</button>
   `;
   addJasaRow();
   addItemBlock();
+}
+function toggleSSC(){
+  const isYes = document.getElementById('sscTerlibat').value === 'Yes';
+  document.getElementById('ssc-block').style.display = isYes ? '' : 'none';
+  if(isYes && !document.querySelector('#sscWrap tr')) addSSCRow();
+}
+function addSSCRow(){
+  const md = masterData || {};
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><select class="ssc-name">${optionList(md.SSC)}</select></td>
+    <td><select class="ssc-status"><option value="Sudah Dikerjakan">Sudah Dikerjakan</option><option value="Belum Dikerjakan">Belum Dikerjakan</option></select></td>
+    <td>
+      <select class="ssc-alasan" onchange="toggleOther(this)">${optionListWithOther(md.Alasan_SSC)}</select>
+      <input class="ssc-alasan-other" style="display:none" placeholder="Sebutkan alasan lain">
+    </td>
+    <td><button type="button" class="row-remove" onclick="this.closest('tr').remove()" title="Hapus baris">&times;</button></td>
+  `;
+  document.getElementById('sscWrap').appendChild(tr);
 }
 let jasaCount = 0;
 function addJasaRow(){
@@ -402,6 +451,17 @@ async function submitKunjungan(){
       });
     }
 
+    const itemsSSC = [];
+    for(const b of document.querySelectorAll('#sscWrap tr')){
+      const ssc = b.querySelector('.ssc-name').value;
+      if(!ssc) continue;
+      itemsSSC.push({
+        ssc,
+        status: b.querySelector('.ssc-status').value,
+        alasan: readDropdownWithOther(b.querySelector('.ssc-alasan'))
+      });
+    }
+
     const tipeMobil = document.getElementById('tipeMobil').value;
     const tipeService = document.getElementById('tipeService').value;
     const tanggalService = document.getElementById('tanggalService').value;
@@ -438,7 +498,9 @@ async function submitKunjungan(){
       proses,
       items,
       itemsJasa,
-      hybridHealthCheck
+      hybridHealthCheck,
+      sscTerlibat: document.getElementById('sscTerlibat').value,
+      itemsSSC
     };
     const res = await api('createKunjungan','POST',body);
     alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);
