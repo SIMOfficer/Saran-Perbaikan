@@ -42,17 +42,20 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1IP_2tMxMMXprOvNy9HbsTBrS4LK2lw6cDfV2UThQ1VQ'; // Template dokumen report
-const CODE_VERSION = 'v3-clear-placeholder-text'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v4-masterdata-tipe-mobil'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
 const HEADERS = {
   Kunjungan: ['ID_Kunjungan','Timestamp','Tanggal_Masuk','No_Polisi','Nama_Customer',
     'No_HP_Customer','SA','Teknisi','Status','PDF_URL','Tanggal_FollowUp_Rencana',
-    'Status_FollowUp','Catatan_FollowUp','Tanggal_FollowUp_Aktual'],
+    'Status_FollowUp','Catatan_FollowUp','Tanggal_FollowUp_Aktual','Tipe_Mobil','Tipe_Service'],
   Item_Saran: ['ID_Item','ID_Kunjungan','Nama_Komponen','Qty','Keterangan_Teknisi',
     'Nomor_Part','Estimasi_Harga','Ketersediaan_Part','Keterangan_Partman','Foto_URL',
-    'Diisi_Teknisi_At','Diisi_Partman_At']
+    'Diisi_Teknisi_At','Diisi_Partman_At'],
+  // Setiap kolom = 1 daftar pilihan dropdown (baris di bawah header = isi pilihan).
+  // Kolom bisa punya jumlah baris berbeda-beda, sel kosong akan diabaikan.
+  MasterData: ['Tipe_Mobil','Tipe_Service','Service_Advisor','Teknisi']
 };
 
 function getSS() {
@@ -69,13 +72,23 @@ function getSheet(name) {
 /** Pastikan row 1 selalu berisi header yang benar. Jika hilang/salah (mis. sheet
  *  baru langsung diisi data tanpa setupSheets()), sisipkan header baru di row 1
  *  dan dorong data yang sudah ada ke bawah, alih-alih membiarkan baris data
- *  tersalah-baca sebagai header oleh rowToObj(). */
+ *  tersalah-baca sebagai header oleh rowToObj(). Kalau header lama masih valid
+ *  dan cuma kurang kolom baru di akhir (skema bertambah), header cukup
+ *  diperluas di tempat tanpa menggeser baris data manapun. */
 function ensureHeader(sh, headers) {
   if (!headers) return;
   const lastRow = sh.getLastRow();
   const firstRow = lastRow > 0 ? sh.getRange(1, 1, 1, headers.length).getValues()[0] : [];
   const isCorrect = headers.every((h, i) => firstRow[i] === h);
   if (isCorrect) return;
+
+  const isSafeExtension = firstRow.length > 0 &&
+    headers.every((h, i) => firstRow[i] === h || firstRow[i] === '' || firstRow[i] === undefined);
+  if (isSafeExtension) {
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    return;
+  }
+
   if (lastRow > 0) sh.insertRowBefore(1);
   sh.getRange(1, 1, 1, headers.length).setValues([headers]);
 }
@@ -86,6 +99,7 @@ function ensureHeader(sh, headers) {
 function setupSheets() {
   getSheet('Kunjungan');
   getSheet('Item_Saran');
+  getSheet('MasterData');
 }
 
 /** ============ ENTRY POINTS ============ */
@@ -97,6 +111,7 @@ function doGet(e) {
       case 'listKunjungan': result = listKunjungan(e.parameter); break;
       case 'getKunjungan': result = getKunjunganDetail(e.parameter.id); break;
       case 'dashboard': result = getDashboard(e.parameter); break;
+      case 'masterData': result = getMasterData(); break;
       case 'version': result = { version: CODE_VERSION }; break;
       default: result = { error: 'Unknown action' };
     }
@@ -138,7 +153,8 @@ function createKunjungan(body) {
   const now = new Date();
   const followUpDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
   sh.appendRow([id, now, body.tanggalMasuk || now, body.noPolisi, body.namaCustomer,
-    body.noHp || '', body.sa, body.teknisi, 'Menunggu Partman', '', followUpDate, 'Belum', '', '']);
+    body.noHp || '', body.sa, body.teknisi, 'Menunggu Partman', '', followUpDate, 'Belum', '', '',
+    body.tipeMobil || '', body.tipeService || '']);
 
   // item-item saran (wajib: namaKomponen, qty; opsional: keterangan)
   if (body.items && body.items.length) {
@@ -184,6 +200,25 @@ function uploadFoto(body) {
   const file = folder.createFile(blob);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return { success: true, url: file.getUrl(), fileId: file.getId() };
+}
+
+/** ============ MASTER DATA (isi dropdown) ============ */
+function getMasterData() {
+  const sh = getSheet('MasterData');
+  const headers = HEADERS.MasterData;
+  const lastRow = sh.getLastRow();
+  const result = {};
+  headers.forEach(h => result[h] = []);
+  if (lastRow < 2) return result;
+
+  const values = sh.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  headers.forEach((h, col) => {
+    values.forEach(row => {
+      const v = row[col];
+      if (v !== '' && v !== null && v !== undefined) result[h].push(v);
+    });
+  });
+  return result;
 }
 
 /** ============ LIST & DETAIL ============ */

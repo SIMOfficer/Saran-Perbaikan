@@ -116,8 +116,24 @@ function render(view){
 
 /* ---------- TEKNISI: input saran ---------- */
 let itemCount = 0;
-function renderInputTeknisi(app){
+let masterData = null;
+async function loadMasterData(){
+  if(masterData) return masterData;
+  const md = await api('masterData');
+  masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[] };
+  return masterData;
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function optionList(values){
+  return '<option value="">-- Pilih --</option>' + (values||[]).map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+}
+async function renderInputTeknisi(app){
   itemCount = 0;
+  app.innerHTML = `<div class="card"><p class="note">Memuat data...</p></div>`;
+  const md = await loadMasterData();
+  const today = new Date().toISOString().slice(0,10);
   app.innerHTML = `
   <div class="card">
     <h3>Data Unit / Customer</h3>
@@ -127,8 +143,13 @@ function renderInputTeknisi(app){
       <div><label>No. HP Customer</label><input id="noHp"></div>
     </div>
     <div class="row">
-      <div><label class="req">Service Advisor</label><input id="sa" placeholder="Nama SA"></div>
-      <div><label class="req">Teknisi</label><input id="teknisi" placeholder="Nama Anda"></div>
+      <div><label class="req">Tipe Mobil</label><select id="tipeMobil">${optionList(md.Tipe_Mobil)}</select></div>
+      <div><label class="req">Tipe Service</label><select id="tipeService">${optionList(md.Tipe_Service)}</select></div>
+      <div><label class="req">Tanggal Service</label><input id="tanggalService" type="date" value="${today}"></div>
+    </div>
+    <div class="row">
+      <div><label class="req">Service Advisor</label><select id="sa">${optionList(md.Service_Advisor)}</select></div>
+      <div><label class="req">Teknisi</label><select id="teknisi">${optionList(md.Teknisi)}</select></div>
     </div>
   </div>
 
@@ -202,15 +223,21 @@ async function submitKunjungan(){
       items.push(item);
     }
 
-    if(!document.getElementById('noPolisi').value || !items.length){
-      alert('No. Polisi dan minimal 1 komponen (nama + qty) wajib diisi'); return;
+    const tipeMobil = document.getElementById('tipeMobil').value;
+    const tipeService = document.getElementById('tipeService').value;
+    const tanggalService = document.getElementById('tanggalService').value;
+    const sa = document.getElementById('sa').value;
+    const teknisi = document.getElementById('teknisi').value;
+    if(!document.getElementById('noPolisi').value || !tipeMobil || !tipeService || !tanggalService || !sa || !teknisi || !items.length){
+      alert('No. Polisi, Tipe Mobil, Tipe Service, Tanggal Service, Service Advisor, Teknisi, dan minimal 1 komponen (nama + qty) wajib diisi'); return;
     }
     const body = {
       noPolisi: document.getElementById('noPolisi').value,
       namaCustomer: document.getElementById('namaCustomer').value,
       noHp: document.getElementById('noHp').value,
-      sa: document.getElementById('sa').value,
-      teknisi: document.getElementById('teknisi').value,
+      tipeMobil, tipeService,
+      tanggalMasuk: tanggalService,
+      sa, teknisi,
       items
     };
     const res = await api('createKunjungan','POST',body);
