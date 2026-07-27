@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1IP_2tMxMMXprOvNy9HbsTBrS4LK2lw6cDfV2UThQ1VQ'; // Template dokumen report
-const CODE_VERSION = 'v8-special-service-campaign'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v9-technical-information'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -67,9 +67,12 @@ const HEADERS = {
   Item_Jasa: ['ID_Jasa','ID_Kunjungan','Nama_Jasa','Waktu','Harga_Satuan','Keterangan','Diisi_Teknisi_At'],
   // Daftar SSC per kunjungan (1 kunjungan bisa ikut beberapa campaign sekaligus).
   Item_SSC: ['ID_SSC','ID_Kunjungan','SSC','Status','Alasan','Diisi_Teknisi_At'],
+  // Daftar Technical Information per kunjungan (1 kunjungan bisa punya beberapa baris).
+  Item_TechnicalInfo: ['ID_TI','ID_Kunjungan','Technical_Information','Status','Alasan','Diisi_Teknisi_At'],
   // Setiap kolom = 1 daftar pilihan dropdown (baris di bawah header = isi pilihan).
   // Kolom bisa punya jumlah baris berbeda-beda, sel kosong akan diabaikan.
-  MasterData: ['Tipe_Mobil','Tipe_Service','Service_Advisor','Teknisi','SSC','Alasan_SSC']
+  MasterData: ['Tipe_Mobil','Tipe_Service','Service_Advisor','Teknisi','SSC','Alasan_SSC',
+    'Technical_Information','Alasan_Technical']
 };
 
 function getSS() {
@@ -115,6 +118,7 @@ function setupSheets() {
   getSheet('Item_Saran');
   getSheet('Item_Jasa');
   getSheet('Item_SSC');
+  getSheet('Item_TechnicalInfo');
   getSheet('MasterData');
 }
 
@@ -147,6 +151,7 @@ function doPost(e) {
       case 'addItemSaran': result = addItemSaran(body); break;
       case 'addItemJasa': result = addItemJasa(body); break;
       case 'addItemSSC': result = addItemSSC(body); break;
+      case 'addItemTechnicalInfo': result = addItemTechnicalInfo(body); break;
       case 'updatePartman': result = updatePartmanItem(body); break;
       case 'uploadFoto': result = uploadFoto(body); break;
       case 'generateReport': result = generateReport(body.idKunjungan); break;
@@ -197,6 +202,10 @@ function createKunjungan(body) {
   if (body.itemsSSC && body.itemsSSC.length) {
     body.itemsSSC.forEach(it => addItemSSC({ idKunjungan: id, ...it }));
   }
+  // item-item Technical Information (wajib: technicalInformation; opsional: status, alasan)
+  if (body.itemsTechnicalInfo && body.itemsTechnicalInfo.length) {
+    body.itemsTechnicalInfo.forEach(it => addItemTechnicalInfo({ idKunjungan: id, ...it }));
+  }
   return { success: true, idKunjungan: id };
 }
 
@@ -233,6 +242,17 @@ function addItemSSC(body) {
   const id = 'SSC-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000);
   sh.appendRow([id, body.idKunjungan, body.ssc, body.status || '', body.alasan || '', new Date()]);
   return { success: true, idSSC: id };
+}
+
+/** Teknisi tambah 1 baris Technical Information ke kunjungan yang sudah ada */
+function addItemTechnicalInfo(body) {
+  if (!body.technicalInformation) {
+    return { error: 'Technical Information wajib diisi' };
+  }
+  const sh = getSheet('Item_TechnicalInfo');
+  const id = 'TI-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000);
+  sh.appendRow([id, body.idKunjungan, body.technicalInformation, body.status || '', body.alasan || '', new Date()]);
+  return { success: true, idTI: id };
 }
 
 /** ============ PARTMAN / FOREMAN: lengkapi data part ============ */
@@ -310,7 +330,12 @@ function getKunjunganDetail(id) {
   const headerSSC = dataSSC.shift();
   const itemsSSC = dataSSC.map(r => rowToObj(headerSSC, r)).filter(it => it.ID_Kunjungan === id);
 
-  return { kunjungan: kj, items: items, itemsJasa: itemsJasa, itemsSSC: itemsSSC };
+  const shTI = getSheet('Item_TechnicalInfo');
+  const dataTI = shTI.getDataRange().getValues();
+  const headerTI = dataTI.shift();
+  const itemsTechnicalInfo = dataTI.map(r => rowToObj(headerTI, r)).filter(it => it.ID_Kunjungan === id);
+
+  return { kunjungan: kj, items: items, itemsJasa: itemsJasa, itemsSSC: itemsSSC, itemsTechnicalInfo: itemsTechnicalInfo };
 }
 
 function rowToObj(header, row) {
