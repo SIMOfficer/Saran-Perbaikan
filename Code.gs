@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1IP_2tMxMMXprOvNy9HbsTBrS4LK2lw6cDfV2UThQ1VQ'; // Template dokumen report
-const CODE_VERSION = 'v5-proses-service'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v6-saran-perbaikan-jasa-parts'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -56,9 +56,13 @@ const HEADERS = {
     'KampasRem_Status','KampasRem_Keterangan','KampasRem_Harga',
     'Wiper_Status','Wiper_Keterangan','Wiper_Harga',
     'Lampu_Status','Lampu_Keterangan','Lampu_Harga'],
+  // "Nama Parts" di Saran Perbaikan - Harga_Satuan_Teknisi adalah estimasi harga part dari
+  // Teknisi sendiri saat input awal, terpisah dari Estimasi_Harga yang diisi Partman belakangan.
   Item_Saran: ['ID_Item','ID_Kunjungan','Nama_Komponen','Qty','Keterangan_Teknisi',
     'Nomor_Part','Estimasi_Harga','Ketersediaan_Part','Keterangan_Partman','Foto_URL',
-    'Diisi_Teknisi_At','Diisi_Partman_At'],
+    'Diisi_Teknisi_At','Diisi_Partman_At','Harga_Satuan_Teknisi'],
+  // "Nama Jasa" di Saran Perbaikan - estimasi biaya jasa/pemasangan, terpisah dari harga part.
+  Item_Jasa: ['ID_Jasa','ID_Kunjungan','Nama_Jasa','Waktu','Harga_Satuan','Keterangan','Diisi_Teknisi_At'],
   // Setiap kolom = 1 daftar pilihan dropdown (baris di bawah header = isi pilihan).
   // Kolom bisa punya jumlah baris berbeda-beda, sel kosong akan diabaikan.
   MasterData: ['Tipe_Mobil','Tipe_Service','Service_Advisor','Teknisi']
@@ -105,6 +109,7 @@ function ensureHeader(sh, headers) {
 function setupSheets() {
   getSheet('Kunjungan');
   getSheet('Item_Saran');
+  getSheet('Item_Jasa');
   getSheet('MasterData');
 }
 
@@ -135,6 +140,7 @@ function doPost(e) {
     switch (action) {
       case 'createKunjungan': result = createKunjungan(body); break;
       case 'addItemSaran': result = addItemSaran(body); break;
+      case 'addItemJasa': result = addItemJasa(body); break;
       case 'updatePartman': result = updatePartmanItem(body); break;
       case 'uploadFoto': result = uploadFoto(body); break;
       case 'generateReport': result = generateReport(body.idKunjungan); break;
@@ -170,14 +176,18 @@ function createKunjungan(body) {
     wiper.status || 'OK', wiper.keterangan || '', wiper.harga || '',
     lampu.status || 'OK', lampu.keterangan || '', lampu.harga || '']);
 
-  // item-item saran (wajib: namaKomponen, qty; opsional: keterangan)
+  // item-item Parts (wajib: namaKomponen, qty; opsional: keterangan, hargaSatuan, fotoUrl)
   if (body.items && body.items.length) {
     body.items.forEach(it => addItemSaran({ idKunjungan: id, ...it }));
+  }
+  // item-item Jasa (wajib: namaJasa; opsional: waktu, hargaSatuan, keterangan)
+  if (body.itemsJasa && body.itemsJasa.length) {
+    body.itemsJasa.forEach(it => addItemJasa({ idKunjungan: id, ...it }));
   }
   return { success: true, idKunjungan: id };
 }
 
-/** Teknisi tambah 1 item saran ke kunjungan yang sudah ada */
+/** Teknisi tambah 1 item part (Nama Parts) ke kunjungan yang sudah ada */
 function addItemSaran(body) {
   if (!body.namaKomponen || !body.qty) {
     return { error: 'Nama komponen dan Qty wajib diisi' };
@@ -185,8 +195,20 @@ function addItemSaran(body) {
   const sh = getSheet('Item_Saran');
   const id = 'IT-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000);
   sh.appendRow([id, body.idKunjungan, body.namaKomponen, body.qty, body.keterangan || '',
-    '', '', '', '', body.fotoUrl || '', new Date(), '']);
+    '', '', '', '', body.fotoUrl || '', new Date(), '', body.hargaSatuan || '']);
   return { success: true, idItem: id };
+}
+
+/** Teknisi tambah 1 item jasa (Nama Jasa) ke kunjungan yang sudah ada */
+function addItemJasa(body) {
+  if (!body.namaJasa) {
+    return { error: 'Nama jasa wajib diisi' };
+  }
+  const sh = getSheet('Item_Jasa');
+  const id = 'JS-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000);
+  sh.appendRow([id, body.idKunjungan, body.namaJasa, body.waktu || '', body.hargaSatuan || '',
+    body.keterangan || '', new Date()]);
+  return { success: true, idJasa: id };
 }
 
 /** ============ PARTMAN / FOREMAN: lengkapi data part ============ */
@@ -253,7 +275,13 @@ function getKunjunganDetail(id) {
   const data = shItem.getDataRange().getValues();
   const header = data.shift();
   const items = data.map(r => rowToObj(header, r)).filter(it => it.ID_Kunjungan === id);
-  return { kunjungan: kj, items: items };
+
+  const shJasa = getSheet('Item_Jasa');
+  const dataJasa = shJasa.getDataRange().getValues();
+  const headerJasa = dataJasa.shift();
+  const itemsJasa = dataJasa.map(r => rowToObj(headerJasa, r)).filter(it => it.ID_Kunjungan === id);
+
+  return { kunjungan: kj, items: items, itemsJasa: itemsJasa };
 }
 
 function rowToObj(header, row) {
