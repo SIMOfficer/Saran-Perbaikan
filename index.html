@@ -349,6 +349,18 @@ async function renderInputTeknisi(app){
     <button class="secondary" onclick="addTIRow()">+ Tambah Technical Information</button>
   </div>
 
+  <div class="card">
+    <h3>Uji Emisi</h3>
+    <div class="row">
+      <div><label>Status</label>
+        <select id="ujiEmisiStatus"><option value="Tidak Aktif">Tidak Aktif</option><option value="Aktif">Aktif</option></select>
+      </div>
+      <div><label>Foto</label>
+        <input id="ujiEmisiFoto" type="file" accept="image/*">
+      </div>
+    </div>
+  </div>
+
   <button class="primary" onclick="submitKunjungan()">Simpan &amp; Kirim ke Partman</button>
   `;
   addJasaRow();
@@ -499,6 +511,17 @@ async function submitKunjungan(){
       });
     }
 
+    const ujiEmisi = { status: document.getElementById('ujiEmisiStatus').value };
+    const ujiEmisiFile = document.getElementById('ujiEmisiFoto').files[0];
+    if(ujiEmisiFile){
+      if(btn) btn.textContent = 'Mengupload foto uji emisi...';
+      const base64Data = await fileToBase64(ujiEmisiFile);
+      const uploadRes = await api('uploadFoto','POST',{ base64Data, mimeType: ujiEmisiFile.type, fileName: ujiEmisiFile.name });
+      if(uploadRes && uploadRes.url) ujiEmisi.fotoUrl = uploadRes.url;
+      else if(uploadRes && uploadRes.error) alert('Gagal upload foto uji emisi: '+uploadRes.error);
+      if(btn) btn.textContent = 'Menyimpan...';
+    }
+
     const tipeMobil = document.getElementById('tipeMobil').value;
     const tipeService = document.getElementById('tipeService').value;
     const tanggalService = document.getElementById('tanggalService').value;
@@ -538,7 +561,8 @@ async function submitKunjungan(){
       hybridHealthCheck,
       sscTerlibat: document.getElementById('sscTerlibat').value,
       itemsSSC,
-      itemsTechnicalInfo
+      itemsTechnicalInfo,
+      ujiEmisi
     };
     const res = await api('createKunjungan','POST',body);
     alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);
