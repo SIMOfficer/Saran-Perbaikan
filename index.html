@@ -158,6 +158,26 @@ function readChecklist(key){
     harga: document.getElementById('chk-harga-'+key).value
   };
 }
+function toggleHybrid(){
+  const isYes = document.getElementById('mobilHybrid').value === 'Yes';
+  document.getElementById('hybrid-sub').style.display = isYes ? '' : 'none';
+  if(!isYes){
+    document.getElementById('sbe50k100k').value = 'No';
+    document.getElementById('mobil2to5Tahun').value = 'No';
+  }
+  toggleHHC();
+}
+function toggleHHC(){
+  const hybridYes = document.getElementById('mobilHybrid').value === 'Yes';
+  const sbeYes = document.getElementById('sbe50k100k').value === 'Yes';
+  const mobil2to5Yes = document.getElementById('mobil2to5Tahun').value === 'Yes';
+  const show = hybridYes && (sbeYes || mobil2to5Yes);
+  document.getElementById('hhc-block').style.display = show ? '' : 'none';
+  if(!show){
+    document.getElementById('hhcStatus').value = 'No';
+    document.getElementById('hhcHasil').value = '';
+  }
+}
 async function renderInputTeknisi(app){
   itemCount = 0;
   jasaCount = 0;
@@ -255,6 +275,37 @@ async function renderInputTeknisi(app){
     </div>
     <p class="note">Total Estimasi Biaya Parts: <b id="totalParts">Rp 0</b></p>
     <button class="secondary" onclick="addItemBlock()">+ Tambah Komponen</button>
+  </div>
+
+  <div class="card">
+    <h3>Hybrid Health Check</h3>
+    <div class="row">
+      <div><label>Mobil Hybrid</label>
+        <select id="mobilHybrid" onchange="toggleHybrid()"><option value="No">No</option><option value="Yes">Yes</option></select>
+      </div>
+    </div>
+    <div id="hybrid-sub" style="display:none">
+      <p class="note">*muncul jika memilih Yes</p>
+      <div class="row">
+        <div><label>SBE 50K - 100K</label>
+          <select id="sbe50k100k" onchange="toggleHHC()"><option value="No">No</option><option value="Yes">Yes</option></select>
+        </div>
+        <div><label>Mobil diatas &gt;2 Tahun dan &lt;5 Tahun</label>
+          <select id="mobil2to5Tahun" onchange="toggleHHC()"><option value="No">No</option><option value="Yes">Yes</option></select>
+        </div>
+      </div>
+      <div id="hhc-block" style="display:none">
+        <p class="note">*muncul jika salah satu dari kriteria setelah memilih Mobil Hybrid memilih Yes</p>
+        <div class="row">
+          <div><label>HHC</label>
+            <select id="hhcStatus"><option value="No">No</option><option value="Yes">Yes</option></select>
+          </div>
+          <div><label>Hasil</label>
+            <select id="hhcHasil"><option value="">-- Pilih --</option><option value="Good">Good</option><option value="Not Good">Not Good</option></select>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <button class="primary" onclick="submitKunjungan()">Simpan &amp; Kirim ke Partman</button>
@@ -370,6 +421,13 @@ async function submitKunjungan(){
       wiper: readChecklist('wiper'),
       lampu: readChecklist('lampu')
     };
+    const hybridHealthCheck = {
+      mobilHybrid: document.getElementById('mobilHybrid').value,
+      sbe50k100k: document.getElementById('sbe50k100k').value,
+      mobil2to5Tahun: document.getElementById('mobil2to5Tahun').value,
+      hhc: document.getElementById('hhcStatus').value,
+      hasil: document.getElementById('hhcHasil').value
+    };
     const body = {
       noPolisi: document.getElementById('noPolisi').value,
       namaCustomer: document.getElementById('namaCustomer').value,
@@ -379,7 +437,8 @@ async function submitKunjungan(){
       sa, teknisi,
       proses,
       items,
-      itemsJasa
+      itemsJasa,
+      hybridHealthCheck
     };
     const res = await api('createKunjungan','POST',body);
     alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);

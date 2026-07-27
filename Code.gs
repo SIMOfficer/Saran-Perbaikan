@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1IP_2tMxMMXprOvNy9HbsTBrS4LK2lw6cDfV2UThQ1VQ'; // Template dokumen report
-const CODE_VERSION = 'v6-saran-perbaikan-jasa-parts'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v7-hybrid-health-check'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -55,7 +55,8 @@ const HEADERS = {
     'Ban_Status','Ban_Keterangan','Ban_Merk1','Ban_Harga1','Ban_Merk2','Ban_Harga2',
     'KampasRem_Status','KampasRem_Keterangan','KampasRem_Harga',
     'Wiper_Status','Wiper_Keterangan','Wiper_Harga',
-    'Lampu_Status','Lampu_Keterangan','Lampu_Harga'],
+    'Lampu_Status','Lampu_Keterangan','Lampu_Harga',
+    'Mobil_Hybrid','SBE_50K_100K','Mobil_2_5_Tahun','HHC','HHC_Hasil'],
   // "Nama Parts" di Saran Perbaikan - Harga_Satuan_Teknisi adalah estimasi harga part dari
   // Teknisi sendiri saat input awal, terpisah dari Estimasi_Harga yang diisi Partman belakangan.
   Item_Saran: ['ID_Item','ID_Kunjungan','Nama_Komponen','Qty','Keterangan_Teknisi',
@@ -166,6 +167,7 @@ function createKunjungan(body) {
   const followUpDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
   const p = body.proses || {};
   const aki = p.aki || {}, ban = p.ban || {}, kampasRem = p.kampasRem || {}, wiper = p.wiper || {}, lampu = p.lampu || {};
+  const hhc = body.hybridHealthCheck || {};
   sh.appendRow([id, now, body.tanggalMasuk || now, body.noPolisi, body.namaCustomer,
     body.noHp || '', body.sa, body.teknisi, 'Menunggu Partman', '', followUpDate, 'Belum', '', '',
     body.tipeMobil || '', body.tipeService || '',
@@ -174,7 +176,8 @@ function createKunjungan(body) {
     ban.status || 'OK', ban.keterangan || '', ban.merk1 || '', ban.harga1 || '', ban.merk2 || '', ban.harga2 || '',
     kampasRem.status || 'OK', kampasRem.keterangan || '', kampasRem.harga || '',
     wiper.status || 'OK', wiper.keterangan || '', wiper.harga || '',
-    lampu.status || 'OK', lampu.keterangan || '', lampu.harga || '']);
+    lampu.status || 'OK', lampu.keterangan || '', lampu.harga || '',
+    hhc.mobilHybrid || 'No', hhc.sbe50k100k || '', hhc.mobil2to5Tahun || '', hhc.hhc || '', hhc.hasil || '']);
 
   // item-item Parts (wajib: namaKomponen, qty; opsional: keterangan, hargaSatuan, fotoUrl)
   if (body.items && body.items.length) {
