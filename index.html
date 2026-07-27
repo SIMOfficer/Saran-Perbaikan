@@ -120,7 +120,7 @@ let masterData = null;
 async function loadMasterData(){
   if(masterData) return masterData;
   const md = await api('masterData');
-  masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[] };
+  masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[], Technical_Information:[], Alasan_Technical:[] };
   return masterData;
 }
 function escapeHtml(s){
@@ -338,10 +338,22 @@ async function renderInputTeknisi(app){
     </div>
   </div>
 
+  <div class="card">
+    <h3>Technical Information</h3>
+    <div style="overflow-x:auto;">
+      <table class="items-table">
+        <thead><tr><th>Technical Information</th><th>Status</th><th>Alasan</th><th></th></tr></thead>
+        <tbody id="tiWrap"></tbody>
+      </table>
+    </div>
+    <button class="secondary" onclick="addTIRow()">+ Tambah Technical Information</button>
+  </div>
+
   <button class="primary" onclick="submitKunjungan()">Simpan &amp; Kirim ke Partman</button>
   `;
   addJasaRow();
   addItemBlock();
+  addTIRow();
 }
 function toggleSSC(){
   const isYes = document.getElementById('sscTerlibat').value === 'Yes';
@@ -361,6 +373,20 @@ function addSSCRow(){
     <td><button type="button" class="row-remove" onclick="this.closest('tr').remove()" title="Hapus baris">&times;</button></td>
   `;
   document.getElementById('sscWrap').appendChild(tr);
+}
+function addTIRow(){
+  const md = masterData || {};
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><select class="ti-name">${optionList(md.Technical_Information)}</select></td>
+    <td><select class="ti-status"><option value="OK">OK</option><option value="NOK Sudah">NOK Sudah</option><option value="NOK Belum">NOK Belum</option></select></td>
+    <td>
+      <select class="ti-alasan" onchange="toggleOther(this)">${optionListWithOther(md.Alasan_Technical)}</select>
+      <input class="ti-alasan-other" style="display:none" placeholder="Sebutkan alasan lain">
+    </td>
+    <td><button type="button" class="row-remove" onclick="this.closest('tr').remove()" title="Hapus baris">&times;</button></td>
+  `;
+  document.getElementById('tiWrap').appendChild(tr);
 }
 let jasaCount = 0;
 function addJasaRow(){
@@ -462,6 +488,17 @@ async function submitKunjungan(){
       });
     }
 
+    const itemsTechnicalInfo = [];
+    for(const b of document.querySelectorAll('#tiWrap tr')){
+      const technicalInformation = b.querySelector('.ti-name').value;
+      if(!technicalInformation) continue;
+      itemsTechnicalInfo.push({
+        technicalInformation,
+        status: b.querySelector('.ti-status').value,
+        alasan: readDropdownWithOther(b.querySelector('.ti-alasan'))
+      });
+    }
+
     const tipeMobil = document.getElementById('tipeMobil').value;
     const tipeService = document.getElementById('tipeService').value;
     const tanggalService = document.getElementById('tanggalService').value;
@@ -500,7 +537,8 @@ async function submitKunjungan(){
       itemsJasa,
       hybridHealthCheck,
       sscTerlibat: document.getElementById('sscTerlibat').value,
-      itemsSSC
+      itemsSSC,
+      itemsTechnicalInfo
     };
     const res = await api('createKunjungan','POST',body);
     alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);
