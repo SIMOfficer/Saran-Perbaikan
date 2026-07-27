@@ -129,6 +129,35 @@ function escapeHtml(s){
 function optionList(values){
   return '<option value="">-- Pilih --</option>' + (values||[]).map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
 }
+function checklistRow(key, label){
+  return `
+  <tr>
+    <td>${label}</td>
+    <td><select id="chk-status-${key}" onchange="toggleHarga('${key}')"><option value="OK">OK</option><option value="NOK">NOK</option></select></td>
+    <td><input id="chk-ket-${key}"></td>
+    <td><input id="chk-harga-${key}" type="number" min="0" style="display:none"></td>
+  </tr>`;
+}
+function toggleHarga(key){
+  const status = document.getElementById('chk-status-'+key).value;
+  const hargaEl = document.getElementById('chk-harga-'+key);
+  hargaEl.style.display = status === 'NOK' ? '' : 'none';
+  if(status !== 'NOK') hargaEl.value = '';
+  if(key === 'ban'){
+    const extra = document.getElementById('ban-merk-extra');
+    extra.style.display = status === 'NOK' ? '' : 'none';
+    if(status !== 'NOK'){
+      ['ban-merk1','ban-harga1','ban-merk2','ban-harga2'].forEach(id => document.getElementById(id).value = '');
+    }
+  }
+}
+function readChecklist(key){
+  return {
+    status: document.getElementById('chk-status-'+key).value,
+    keterangan: document.getElementById('chk-ket-'+key).value,
+    harga: document.getElementById('chk-harga-'+key).value
+  };
+}
 async function renderInputTeknisi(app){
   itemCount = 0;
   app.innerHTML = `<div class="card"><p class="note">Memuat data...</p></div>`;
@@ -150,6 +179,45 @@ async function renderInputTeknisi(app){
     <div class="row">
       <div><label class="req">Service Advisor</label><select id="sa">${optionList(md.Service_Advisor)}</select></div>
       <div><label class="req">Teknisi</label><select id="teknisi">${optionList(md.Teknisi)}</select></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Proses Service</h3>
+    <label>Pekerjaan</label>
+    <textarea id="pekerjaan" rows="3"></textarea>
+    <label>Request Customer</label>
+    <textarea id="requestCustomer" rows="3"></textarea>
+    <div style="overflow-x:auto;">
+      <table class="items-table checklist-table">
+        <thead>
+          <tr><th>Komponen</th><th>Status</th><th>Keterangan</th><th>Harga</th></tr>
+        </thead>
+        <tbody>
+          ${checklistRow('aki','Aki')}
+          ${checklistRow('ban','Ban')}
+        </tbody>
+        <tbody id="ban-merk-extra" style="display:none">
+          <tr>
+            <td></td>
+            <td colspan="3">
+              <div class="row">
+                <div><label>Merk 1</label><input id="ban-merk1"></div>
+                <div><label>Harga 1</label><input id="ban-harga1" type="number" min="0"></div>
+              </div>
+              <div class="row">
+                <div><label>Merk 2</label><input id="ban-merk2"></div>
+                <div><label>Harga 2</label><input id="ban-harga2" type="number" min="0"></div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+        <tbody>
+          ${checklistRow('kampasRem','Kampas Rem')}
+          ${checklistRow('wiper','Wiper')}
+          ${checklistRow('lampu','Lampu')}
+        </tbody>
+      </table>
     </div>
   </div>
 
@@ -231,6 +299,17 @@ async function submitKunjungan(){
     if(!document.getElementById('noPolisi').value || !tipeMobil || !tipeService || !tanggalService || !sa || !teknisi || !items.length){
       alert('No. Polisi, Tipe Mobil, Tipe Service, Tanggal Service, Service Advisor, Teknisi, dan minimal 1 komponen (nama + qty) wajib diisi'); return;
     }
+    const proses = {
+      pekerjaan: document.getElementById('pekerjaan').value,
+      requestCustomer: document.getElementById('requestCustomer').value,
+      aki: readChecklist('aki'),
+      ban: { ...readChecklist('ban'),
+        merk1: document.getElementById('ban-merk1').value, harga1: document.getElementById('ban-harga1').value,
+        merk2: document.getElementById('ban-merk2').value, harga2: document.getElementById('ban-harga2').value },
+      kampasRem: readChecklist('kampasRem'),
+      wiper: readChecklist('wiper'),
+      lampu: readChecklist('lampu')
+    };
     const body = {
       noPolisi: document.getElementById('noPolisi').value,
       namaCustomer: document.getElementById('namaCustomer').value,
@@ -238,6 +317,7 @@ async function submitKunjungan(){
       tipeMobil, tipeService,
       tanggalMasuk: tanggalService,
       sa, teknisi,
+      proses,
       items
     };
     const res = await api('createKunjungan','POST',body);
