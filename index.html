@@ -160,6 +160,7 @@ function readChecklist(key){
 }
 async function renderInputTeknisi(app){
   itemCount = 0;
+  jasaCount = 0;
   app.innerHTML = `<div class="card"><p class="note">Memuat data...</p></div>`;
   const md = await loadMasterData();
   const today = new Date().toISOString().slice(0,10);
@@ -222,27 +223,63 @@ async function renderInputTeknisi(app){
   </div>
 
   <div class="card">
-    <h3>Temuan / Saran Part <span class="note">(hanya isi jika part TIDAK tersedia di gudang)</span></h3>
+    <h3>Saran Perbaikan</h3>
+
+    <h4>Nama Jasa</h4>
+    <div style="overflow-x:auto;">
+      <table class="items-table">
+        <thead>
+          <tr><th>Nama Jasa</th><th>Waktu</th><th>Harga Satuan</th><th>Keterangan</th><th></th></tr>
+        </thead>
+        <tbody id="jasaWrap"></tbody>
+      </table>
+    </div>
+    <p class="note">Total Estimasi Biaya Jasa: <b id="totalJasa">Rp 0</b></p>
+    <button class="secondary" onclick="addJasaRow()">+ Tambah Jasa</button>
+
+    <h4 style="margin-top:22px;">Nama Parts <span class="note">(hanya isi jika part TIDAK tersedia di gudang)</span></h4>
     <div style="overflow-x:auto;">
       <table class="items-table">
         <thead>
           <tr>
-            <th>Nama Komponen/Part</th>
+            <th>Nama Parts</th>
             <th>Qty</th>
-            <th>Keterangan (Jika Ada)</th>
-            <th>Foto Komponen Rusak (Opsional)</th>
+            <th>Harga Satuan</th>
+            <th>Keterangan</th>
+            <th>Foto</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="itemsWrap"></tbody>
       </table>
     </div>
+    <p class="note">Total Estimasi Biaya Parts: <b id="totalParts">Rp 0</b></p>
     <button class="secondary" onclick="addItemBlock()">+ Tambah Komponen</button>
   </div>
 
   <button class="primary" onclick="submitKunjungan()">Simpan &amp; Kirim ke Partman</button>
   `;
+  addJasaRow();
   addItemBlock();
+}
+let jasaCount = 0;
+function addJasaRow(){
+  jasaCount++;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input class="j-nama"></td>
+    <td><input class="j-waktu" placeholder="cth: 30 menit"></td>
+    <td><input class="j-harga" type="number" min="0" oninput="updateTotalJasa()"></td>
+    <td><input class="j-ket"></td>
+    <td><button type="button" class="row-remove" onclick="this.closest('tr').remove(); updateTotalJasa()" title="Hapus baris">&times;</button></td>
+  `;
+  document.getElementById('jasaWrap').appendChild(tr);
+}
+function updateTotalJasa(){
+  const rows = [...document.querySelectorAll('#jasaWrap tr')];
+  let total = 0;
+  rows.forEach(r => { total += Number(r.querySelector('.j-harga').value) || 0; });
+  document.getElementById('totalJasa').textContent = 'Rp ' + total.toLocaleString('id-ID');
 }
 function addItemBlock(){
   itemCount++;
@@ -252,12 +289,23 @@ function addItemBlock(){
   tr.id=id;
   tr.innerHTML = `
     <td><input class="f-nama"></td>
-    <td><input class="f-qty" type="number" min="1" value="1"></td>
+    <td><input class="f-qty" type="number" min="1" value="1" oninput="updateTotalParts()"></td>
+    <td><input class="f-harga" type="number" min="0" oninput="updateTotalParts()"></td>
     <td><input class="f-ket" placeholder="cth: aus, bocor, patah dudukan..."></td>
     <td><input class="f-foto" type="file" accept="image/*"></td>
-    <td><button type="button" class="row-remove" onclick="this.closest('tr').remove()" title="Hapus baris">&times;</button></td>
+    <td><button type="button" class="row-remove" onclick="this.closest('tr').remove(); updateTotalParts()" title="Hapus baris">&times;</button></td>
   `;
   document.getElementById('itemsWrap').appendChild(tr);
+}
+function updateTotalParts(){
+  const rows = [...document.querySelectorAll('#itemsWrap tr')];
+  let total = 0;
+  rows.forEach(r => {
+    const qty = Number(r.querySelector('.f-qty').value) || 0;
+    const harga = Number(r.querySelector('.f-harga').value) || 0;
+    total += qty * harga;
+  });
+  document.getElementById('totalParts').textContent = 'Rp ' + total.toLocaleString('id-ID');
 }
 function fileToBase64(file){
   return new Promise((resolve, reject)=>{
@@ -278,7 +326,7 @@ async function submitKunjungan(){
       const namaKomponen = b.querySelector('.f-nama').value;
       const qty = b.querySelector('.f-qty').value;
       if(!namaKomponen || !qty) continue;
-      const item = { namaKomponen, qty, keterangan: b.querySelector('.f-ket').value };
+      const item = { namaKomponen, qty, hargaSatuan: b.querySelector('.f-harga').value, keterangan: b.querySelector('.f-ket').value };
       const file = b.querySelector('.f-foto').files[0];
       if(file){
         if(btn) btn.textContent = 'Mengupload foto...';
@@ -289,6 +337,18 @@ async function submitKunjungan(){
         if(btn) btn.textContent = 'Menyimpan...';
       }
       items.push(item);
+    }
+
+    const itemsJasa = [];
+    for(const b of document.querySelectorAll('#jasaWrap tr')){
+      const namaJasa = b.querySelector('.j-nama').value;
+      if(!namaJasa) continue;
+      itemsJasa.push({
+        namaJasa,
+        waktu: b.querySelector('.j-waktu').value,
+        hargaSatuan: b.querySelector('.j-harga').value,
+        keterangan: b.querySelector('.j-ket').value
+      });
     }
 
     const tipeMobil = document.getElementById('tipeMobil').value;
@@ -318,7 +378,8 @@ async function submitKunjungan(){
       tanggalMasuk: tanggalService,
       sa, teknisi,
       proses,
-      items
+      items,
+      itemsJasa
     };
     const res = await api('createKunjungan','POST',body);
     alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);
