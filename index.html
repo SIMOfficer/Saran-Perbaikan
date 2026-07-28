@@ -132,6 +132,12 @@ function escapeHtml(s){
 function optionList(values){
   return '<option value="">-- Pilih --</option>' + (values||[]).map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
 }
+// Sisipkan `value` ke daftar kalau belum ada - supaya data lama yang nilainya sudah
+// tidak ada lagi di MasterData tetap terlihat & tidak diam-diam jadi kosong saat diedit.
+function ensureOptionPresent(values, value){
+  values = values || [];
+  return (value && !values.includes(value)) ? values.concat([value]) : values;
+}
 function optionListWithOther(values){
   return optionList(values) + '<option value="Others">Others</option>';
 }
@@ -253,6 +259,67 @@ function prosesServiceCardHtml(){
     </div>
   </div>`;
 }
+function hybridHealthCheckCardHtml(){
+  return `
+  <div class="card">
+    <h3>Hybrid Health Check</h3>
+    <div class="row">
+      <div><label>Mobil Hybrid</label>
+        <select id="mobilHybrid" onchange="toggleHybrid()"><option value="No">No</option><option value="Yes">Yes</option></select>
+      </div>
+    </div>
+    <div id="hybrid-sub" style="display:none">
+      <p class="note">*muncul jika memilih Yes</p>
+      <div class="row">
+        <div><label>SBE 50K - 100K</label>
+          <select id="sbe50k100k" onchange="toggleHHC()"><option value="No">No</option><option value="Yes">Yes</option></select>
+        </div>
+        <div><label>Mobil diatas &gt;2 Tahun dan &lt;5 Tahun</label>
+          <select id="mobil2to5Tahun" onchange="toggleHHC()"><option value="No">No</option><option value="Yes">Yes</option></select>
+        </div>
+      </div>
+      <div id="hhc-block" style="display:none">
+        <p class="note">*muncul jika salah satu dari kriteria setelah memilih Mobil Hybrid memilih Yes</p>
+        <div class="row">
+          <div><label>HHC</label>
+            <select id="hhcStatus"><option value="No">No</option><option value="Yes">Yes</option></select>
+          </div>
+          <div><label>Hasil</label>
+            <select id="hhcHasil"><option value="">-- Pilih --</option><option value="Good">Good</option><option value="Not Good">Not Good</option></select>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function fillHybridHealthCheckFromKunjungan(kj){
+  document.getElementById('mobilHybrid').value = kj.Mobil_Hybrid || 'No';
+  document.getElementById('sbe50k100k').value = kj.SBE_50K_100K || 'No';
+  document.getElementById('mobil2to5Tahun').value = kj.Mobil_2_5_Tahun || 'No';
+  document.getElementById('hhcStatus').value = kj.HHC || 'No';
+  document.getElementById('hhcHasil').value = kj.HHC_Hasil || '';
+  toggleHybrid();
+}
+function ujiEmisiCardHtml(){
+  return `
+  <div class="card">
+    <h3>Uji Emisi</h3>
+    <div class="row">
+      <div><label>Status</label>
+        <select id="ujiEmisiStatus"><option value="Tidak Aktif">Tidak Aktif</option><option value="Aktif">Aktif</option></select>
+      </div>
+      <div><label>Foto</label>
+        <input id="ujiEmisiFoto" type="file" accept="image/*">
+        <div id="ujiEmisiFotoExisting" class="note"></div>
+      </div>
+    </div>
+  </div>`;
+}
+function fillUjiEmisiFromKunjungan(kj){
+  document.getElementById('ujiEmisiStatus').value = kj.UjiEmisi_Status || 'Tidak Aktif';
+  const existing = document.getElementById('ujiEmisiFotoExisting');
+  existing.innerHTML = kj.UjiEmisi_Foto_URL ? `Foto saat ini: <a href="${kj.UjiEmisi_Foto_URL}" target="_blank">lihat</a> (upload baru untuk mengganti)` : '';
+}
 function toDateInputValue(isoString){
   if(!isoString) return '';
   const d = new Date(isoString);
@@ -320,36 +387,7 @@ async function renderInputTeknisi(app){
     <button class="secondary" onclick="addItemBlock()">+ Tambah Komponen</button>
   </div>
 
-  <div class="card">
-    <h3>Hybrid Health Check</h3>
-    <div class="row">
-      <div><label>Mobil Hybrid</label>
-        <select id="mobilHybrid" onchange="toggleHybrid()"><option value="No">No</option><option value="Yes">Yes</option></select>
-      </div>
-    </div>
-    <div id="hybrid-sub" style="display:none">
-      <p class="note">*muncul jika memilih Yes</p>
-      <div class="row">
-        <div><label>SBE 50K - 100K</label>
-          <select id="sbe50k100k" onchange="toggleHHC()"><option value="No">No</option><option value="Yes">Yes</option></select>
-        </div>
-        <div><label>Mobil diatas &gt;2 Tahun dan &lt;5 Tahun</label>
-          <select id="mobil2to5Tahun" onchange="toggleHHC()"><option value="No">No</option><option value="Yes">Yes</option></select>
-        </div>
-      </div>
-      <div id="hhc-block" style="display:none">
-        <p class="note">*muncul jika salah satu dari kriteria setelah memilih Mobil Hybrid memilih Yes</p>
-        <div class="row">
-          <div><label>HHC</label>
-            <select id="hhcStatus"><option value="No">No</option><option value="Yes">Yes</option></select>
-          </div>
-          <div><label>Hasil</label>
-            <select id="hhcHasil"><option value="">-- Pilih --</option><option value="Good">Good</option><option value="Not Good">Not Good</option></select>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+  ${hybridHealthCheckCardHtml()}
 
   <div class="card">
     <h3>Special Service Campaign</h3>
@@ -381,17 +419,7 @@ async function renderInputTeknisi(app){
     <button class="secondary" onclick="addTIRow()">+ Tambah Technical Information</button>
   </div>
 
-  <div class="card">
-    <h3>Uji Emisi</h3>
-    <div class="row">
-      <div><label>Status</label>
-        <select id="ujiEmisiStatus"><option value="Tidak Aktif">Tidak Aktif</option><option value="Aktif">Aktif</option></select>
-      </div>
-      <div><label>Foto</label>
-        <input id="ujiEmisiFoto" type="file" accept="image/*">
-      </div>
-    </div>
-  </div>
+  ${ujiEmisiCardHtml()}
 
   <button class="primary" onclick="submitKunjungan()">Simpan &amp; Kirim ke Foreman</button>
   `;
@@ -402,7 +430,10 @@ async function renderInputTeknisi(app){
 function toggleSSC(){
   const isYes = document.getElementById('sscTerlibat').value === 'Yes';
   document.getElementById('ssc-block').style.display = isYes ? '' : 'none';
-  if(isYes && !document.querySelector('#sscWrap tr')) addSSCRow();
+  // #sscWrap cuma ada di form create Teknisi - di form edit Foreman (#foremanSSCWrap)
+  // baris sudah diisi eksplisit dari data yang ada, jadi tidak perlu auto-tambah baris.
+  const wrap = document.getElementById('sscWrap');
+  if(isYes && wrap && !wrap.querySelector('tr')) addSSCRow();
 }
 function addSSCRow(){
   const md = masterData || {};
@@ -657,6 +688,42 @@ async function openForemanEdit(id){
     <button class="secondary" onclick="addForemanPartRow()">+ Tambah Parts</button>
   </div>
 
+  ${hybridHealthCheckCardHtml()}
+  <button class="primary" onclick="saveForemanChanges()">Simpan Perubahan</button>
+
+  <div class="card" style="margin-top:16px;">
+    <h3>Special Service Campaign</h3>
+    <div class="row">
+      <div><label>Terlibat</label>
+        <select id="sscTerlibat" onchange="toggleSSC()"><option value="No">No</option><option value="Yes">Yes</option></select>
+      </div>
+    </div>
+    <div id="ssc-block" style="display:none">
+      <div style="overflow-x:auto;">
+        <table class="items-table">
+          <thead><tr><th>SSC</th><th>Status</th><th>Alasan</th><th></th></tr></thead>
+          <tbody id="foremanSSCWrap"></tbody>
+        </table>
+      </div>
+      <button class="secondary" onclick="addForemanSSCRow()">+ Tambah SSC</button>
+    </div>
+  </div>
+  <button class="primary" onclick="saveForemanChanges()">Simpan Perubahan</button>
+
+  <div class="card" style="margin-top:16px;">
+    <h3>Technical Information</h3>
+    <div style="overflow-x:auto;">
+      <table class="items-table">
+        <thead><tr><th>Technical Information</th><th>Status</th><th>Alasan</th><th></th></tr></thead>
+        <tbody id="foremanTIWrap"></tbody>
+      </table>
+    </div>
+    <button class="secondary" onclick="addForemanTIRow()">+ Tambah Technical Information</button>
+  </div>
+
+  ${ujiEmisiCardHtml()}
+  <button class="primary" onclick="saveForemanChanges()">Simpan Perubahan</button>
+
   <button class="primary" onclick="finishAndGenerate()">Selesai &amp; Buat Report PDF</button>
   `;
   document.getElementById('noPolisi').value = kj.No_Polisi || '';
@@ -668,9 +735,15 @@ async function openForemanEdit(id){
   document.getElementById('sa').value = kj.SA || '';
   document.getElementById('teknisi').value = kj.Teknisi || '';
   fillProsesServiceFromKunjungan(kj);
+  fillHybridHealthCheckFromKunjungan(kj);
+  fillUjiEmisiFromKunjungan(kj);
+  document.getElementById('sscTerlibat').value = kj.SSC_Terlibat || 'No';
+  toggleSSC();
 
   (detail.itemsJasa||[]).forEach(it=>addForemanJasaRow(it));
   (detail.items||[]).forEach(it=>addForemanPartRow(it));
+  (detail.itemsSSC||[]).forEach(it=>addForemanSSCRow(it));
+  (detail.itemsTechnicalInfo||[]).forEach(it=>addForemanTIRow(it));
 }
 function addForemanJasaRow(it){
   it = it || {};
@@ -776,6 +849,102 @@ async function deleteForemanPartRow(btn){
   }
   tr.remove();
 }
+function addForemanSSCRow(it){
+  it = it || {};
+  const md = masterData || {};
+  const tr = document.createElement('tr');
+  tr.dataset.id = it.ID_SSC || '';
+  const alasanIsOther = it.Alasan && !(md.Alasan_SSC||[]).includes(it.Alasan);
+  tr.innerHTML = `
+    <td><select class="fssc-name">${optionList(ensureOptionPresent(md.SSC, it.SSC))}</select></td>
+    <td><select class="fssc-status"><option value="Sudah Dikerjakan">Sudah Dikerjakan</option><option value="Belum Dikerjakan">Belum Dikerjakan</option></select></td>
+    <td>
+      <select class="fssc-alasan" onchange="toggleOther(this)">${optionListWithOther(md.Alasan_SSC)}</select>
+      <input class="fssc-alasan-other" style="display:${alasanIsOther?'':'none'}" placeholder="Sebutkan alasan lain" value="${alasanIsOther?escapeHtml(it.Alasan):''}">
+    </td>
+    <td>
+      <button type="button" class="secondary" onclick="saveForemanSSCRow(this)">Simpan</button>
+      <button type="button" class="row-remove" onclick="deleteForemanSSCRow(this)" title="Hapus">&times;</button>
+    </td>
+  `;
+  document.getElementById('foremanSSCWrap').appendChild(tr);
+  tr.querySelector('.fssc-name').value = it.SSC || '';
+  tr.querySelector('.fssc-status').value = it.Status || 'Belum Dikerjakan';
+  if(alasanIsOther) tr.querySelector('.fssc-alasan').value = 'Others';
+  else tr.querySelector('.fssc-alasan').value = it.Alasan || '';
+}
+async function saveForemanSSCRow(btn){
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  const ssc = tr.querySelector('.fssc-name').value;
+  const status = tr.querySelector('.fssc-status').value;
+  const alasan = readDropdownWithOther(tr.querySelector('.fssc-alasan'));
+  let res;
+  if(!id){
+    res = await api('addItemSSC','POST',{ idKunjungan: currentDetailId, ssc, status, alasan });
+    if(res.success) tr.dataset.id = res.idSSC;
+  } else {
+    res = await api('updateRow','POST',{ sheet:'Item_SSC', id, fields:{ SSC: ssc, Status: status, Alasan: alasan } });
+  }
+  btn.textContent = res.success ? 'Tersimpan ✓' : 'Gagal';
+}
+async function deleteForemanSSCRow(btn){
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  if(id){
+    if(!confirm('Hapus baris SSC ini?')) return;
+    await api('deleteRow','POST',{ sheet:'Item_SSC', id });
+  }
+  tr.remove();
+}
+function addForemanTIRow(it){
+  it = it || {};
+  const md = masterData || {};
+  const tr = document.createElement('tr');
+  tr.dataset.id = it.ID_TI || '';
+  const alasanIsOther = it.Alasan && !(md.Alasan_Technical||[]).includes(it.Alasan);
+  tr.innerHTML = `
+    <td><select class="fti-name">${optionList(ensureOptionPresent(md.Technical_Information, it.Technical_Information))}</select></td>
+    <td><select class="fti-status"><option value="OK">OK</option><option value="NOK Sudah">NOK Sudah</option><option value="NOK Belum">NOK Belum</option></select></td>
+    <td>
+      <select class="fti-alasan" onchange="toggleOther(this)">${optionListWithOther(md.Alasan_Technical)}</select>
+      <input class="fti-alasan-other" style="display:${alasanIsOther?'':'none'}" placeholder="Sebutkan alasan lain" value="${alasanIsOther?escapeHtml(it.Alasan):''}">
+    </td>
+    <td>
+      <button type="button" class="secondary" onclick="saveForemanTIRow(this)">Simpan</button>
+      <button type="button" class="row-remove" onclick="deleteForemanTIRow(this)" title="Hapus">&times;</button>
+    </td>
+  `;
+  document.getElementById('foremanTIWrap').appendChild(tr);
+  tr.querySelector('.fti-name').value = it.Technical_Information || '';
+  tr.querySelector('.fti-status').value = it.Status || 'OK';
+  if(alasanIsOther) tr.querySelector('.fti-alasan').value = 'Others';
+  else tr.querySelector('.fti-alasan').value = it.Alasan || '';
+}
+async function saveForemanTIRow(btn){
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  const technicalInformation = tr.querySelector('.fti-name').value;
+  const status = tr.querySelector('.fti-status').value;
+  const alasan = readDropdownWithOther(tr.querySelector('.fti-alasan'));
+  let res;
+  if(!id){
+    res = await api('addItemTechnicalInfo','POST',{ idKunjungan: currentDetailId, technicalInformation, status, alasan });
+    if(res.success) tr.dataset.id = res.idTI;
+  } else {
+    res = await api('updateRow','POST',{ sheet:'Item_TechnicalInfo', id, fields:{ Technical_Information: technicalInformation, Status: status, Alasan: alasan } });
+  }
+  btn.textContent = res.success ? 'Tersimpan ✓' : 'Gagal';
+}
+async function deleteForemanTIRow(btn){
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  if(id){
+    if(!confirm('Hapus baris Technical Information ini?')) return;
+    await api('deleteRow','POST',{ sheet:'Item_TechnicalInfo', id });
+  }
+  tr.remove();
+}
 async function saveForemanChanges(){
   const fields = {
     No_Polisi: document.getElementById('noPolisi').value.toUpperCase().split(' ').join(''),
@@ -805,8 +974,22 @@ async function saveForemanChanges(){
     Wiper_Harga: document.getElementById('chk-harga-wiper').value,
     Lampu_Status: document.getElementById('chk-status-lampu').value,
     Lampu_Keterangan: document.getElementById('chk-ket-lampu').value,
-    Lampu_Harga: document.getElementById('chk-harga-lampu').value
+    Lampu_Harga: document.getElementById('chk-harga-lampu').value,
+    Mobil_Hybrid: document.getElementById('mobilHybrid').value,
+    SBE_50K_100K: document.getElementById('sbe50k100k').value,
+    Mobil_2_5_Tahun: document.getElementById('mobil2to5Tahun').value,
+    HHC: document.getElementById('hhcStatus').value,
+    HHC_Hasil: document.getElementById('hhcHasil').value,
+    SSC_Terlibat: document.getElementById('sscTerlibat').value,
+    UjiEmisi_Status: document.getElementById('ujiEmisiStatus').value
   };
+  const ujiEmisiFile = document.getElementById('ujiEmisiFoto').files[0];
+  if(ujiEmisiFile){
+    const base64Data = await fileToBase64(ujiEmisiFile);
+    const uploadRes = await api('uploadFoto','POST',{ base64Data, mimeType: ujiEmisiFile.type, fileName: ujiEmisiFile.name });
+    if(uploadRes && uploadRes.url) fields.UjiEmisi_Foto_URL = uploadRes.url;
+    else if(uploadRes && uploadRes.error) alert('Gagal upload foto uji emisi: '+uploadRes.error);
+  }
   const res = await api('updateKunjungan','POST',{ idKunjungan: currentDetailId, fields });
   alert(res.success ? 'Perubahan tersimpan' : 'Gagal menyimpan: '+(res.error||'unknown error'));
 }
