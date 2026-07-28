@@ -48,7 +48,7 @@
   <h1>🔧 Sistem Manajemen Saran Perbaikan</h1>
   <select id="roleSwitch">
     <option value="teknisi">Login sebagai: Teknisi</option>
-    <option value="partman">Login sebagai: Partman / Foreman</option>
+    <option value="foreman">Login sebagai: Foreman</option>
     <option value="sa">Login sebagai: Service Advisor</option>
     <option value="kabengkel">Login sebagai: Kepala Bengkel</option>
   </select>
@@ -69,7 +69,7 @@ let currentDetailId = null;
 
 const TABS = {
   teknisi:   [["input","Input Saran Baru"],["riwayat","Riwayat Saya"]],
-  partman:   [["antrian","Antrian Perlu Dilengkapi"]],
+  foreman:   [["antrian","Antrian Perlu Dilengkapi"]],
   sa:        [["followup","Follow Up (H+3)"],["laporan","Kirim Report Customer"]],
   kabengkel: [["dashboard","Dashboard"],["semua","Semua Kunjungan"]],
 };
@@ -107,7 +107,7 @@ function render(view){
   const app = document.getElementById('app');
   if(view==='input') return renderInputTeknisi(app);
   if(view==='riwayat') return renderRiwayatTeknisi(app);
-  if(view==='antrian') return renderAntrianPartman(app);
+  if(view==='antrian') return renderAntrianForeman(app);
   if(view==='followup') return renderFollowUp(app);
   if(view==='laporan') return renderLaporan(app);
   if(view==='dashboard') return renderDashboard(app);
@@ -364,7 +364,7 @@ async function renderInputTeknisi(app){
     </div>
   </div>
 
-  <button class="primary" onclick="submitKunjungan()">Simpan &amp; Kirim ke Partman</button>
+  <button class="primary" onclick="submitKunjungan()">Simpan &amp; Kirim ke Foreman</button>
   `;
   addJasaRow();
   addItemBlock();
@@ -570,29 +570,31 @@ async function submitKunjungan(){
     const res = await api('createKunjungan','POST',body);
     alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);
   } finally {
-    if(btn){ btn.disabled = false; btn.textContent = 'Simpan & Kirim ke Partman'; }
+    if(btn){ btn.disabled = false; btn.textContent = 'Simpan & Kirim ke Foreman'; }
   }
 }
 
-/* ---------- PARTMAN / FOREMAN: lengkapi antrian ---------- */
-async function renderAntrianPartman(app){
-  app.innerHTML = `<div class="card"><h3>Antrian Item Menunggu Kelengkapan</h3><div id="list">Memuat...</div></div>`;
+/* ---------- FOREMAN: lengkapi & edit antrian ---------- */
+async function renderAntrianForeman(app){
+  app.innerHTML = `<div class="card"><h3>Antrian Perlu Dilengkapi</h3><div id="list">Memuat...</div></div>`;
   const rows = await api('listKunjungan');
   const list = document.getElementById('list');
   if(rows.demo){ list.innerHTML='<p class="note">Demo mode - hubungkan API untuk data real.</p>'; return; }
-  const waiting = rows.filter(r=>r.Status==='Menunggu Partman');
+  // Menerima status lama "Menunggu Partman" juga, supaya kunjungan yang sudah ada sebelum
+  // rename Partman->Foreman tidak hilang dari antrian.
+  const waiting = rows.filter(r=>r.Status==='Menunggu Foreman' || r.Status==='Menunggu Partman');
   if(!waiting.length){ list.innerHTML='<p>Tidak ada antrian.</p>'; return; }
   list.innerHTML = waiting.map(r=>`
     <div class="item-block">
-      <b>${r.No_Polisi}</b> - ${r.Nama_Customer} <span class="badge wait">Menunggu Partman</span>
-      <br><button class="secondary" onclick="openDetail('${r.ID_Kunjungan}')">Lengkapi Data Part</button>
+      <b>${r.No_Polisi}</b> - ${r.Nama_Customer} <span class="badge wait">Menunggu Foreman</span>
+      <br><button class="secondary" onclick="openForemanEdit('${r.ID_Kunjungan}')">Lengkapi / Edit Data</button>
     </div>`).join('');
 }
-async function openDetail(id){
+async function openForemanEdit(id){
   currentDetailId = id;
   const detail = await api('getKunjungan','GET',{id});
   const app = document.getElementById('app');
-  app.innerHTML = `<div class="card"><h3>Lengkapi Data Part - ${id}</h3><div id="itemsDetail"></div>
+  app.innerHTML = `<div class="card"><h3>Edit Data Kunjungan - ${id}</h3><div id="itemsDetail"></div>
     <button class="primary" onclick="finishAndGenerate()">Selesai &amp; Buat Report PDF</button></div>`;
   const wrap = document.getElementById('itemsDetail');
   (detail.items||[]).forEach(it=>{
@@ -611,14 +613,14 @@ async function openDetail(id){
           </select>
         </div>
       </div>
-      <label>Keterangan tambahan Partman/Foreman</label>
+      <label>Keterangan tambahan Foreman</label>
       <textarea class="p-ket" rows="2">${it.Keterangan_Partman||''}</textarea>
-      <button class="secondary" onclick="saveItemPartman('${it.ID_Item}', this)">Simpan Item</button>
+      <button class="secondary" onclick="saveItemForeman('${it.ID_Item}', this)">Simpan Item</button>
     `;
     wrap.appendChild(div);
   });
 }
-async function saveItemPartman(idItem, btn){
+async function saveItemForeman(idItem, btn){
   const block = btn.parentElement;
   await api('updatePartman','POST',{
     idItem,
