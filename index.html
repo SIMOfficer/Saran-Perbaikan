@@ -632,7 +632,30 @@ async function openForemanEdit(id){
   ${prosesServiceCardHtml()}
   <button class="primary" onclick="saveForemanChanges()">Simpan Perubahan</button>
 
-  <div class="card" style="margin-top:16px;"><h3>Saran Perbaikan (Parts)</h3><div id="itemsDetail"></div></div>
+  <div class="card" style="margin-top:16px;">
+    <h3>Saran Perbaikan</h3>
+
+    <h4>Nama Jasa</h4>
+    <div style="overflow-x:auto;">
+      <table class="items-table">
+        <thead><tr><th>Nama Jasa</th><th>Waktu</th><th>Harga Satuan</th><th>Keterangan</th><th></th></tr></thead>
+        <tbody id="foremanJasaWrap"></tbody>
+      </table>
+    </div>
+    <button class="secondary" onclick="addForemanJasaRow()">+ Tambah Jasa</button>
+
+    <h4 style="margin-top:22px;">Nama Parts</h4>
+    <div style="overflow-x:auto;">
+      <table class="items-table">
+        <thead><tr>
+          <th>Nama Parts</th><th>Qty</th><th>Harga Satuan (Teknisi)</th><th>Ket. Teknisi</th>
+          <th>Nomor Part</th><th>Estimasi Harga</th><th>Ketersediaan</th><th>Ket. Foreman</th><th></th>
+        </tr></thead>
+        <tbody id="foremanPartsWrap"></tbody>
+      </table>
+    </div>
+    <button class="secondary" onclick="addForemanPartRow()">+ Tambah Parts</button>
+  </div>
 
   <button class="primary" onclick="finishAndGenerate()">Selesai &amp; Buat Report PDF</button>
   `;
@@ -646,29 +669,112 @@ async function openForemanEdit(id){
   document.getElementById('teknisi').value = kj.Teknisi || '';
   fillProsesServiceFromKunjungan(kj);
 
-  const wrap = document.getElementById('itemsDetail');
-  (detail.items||[]).forEach(it=>{
-    const div = document.createElement('div');
-    div.className='item-block';
-    div.innerHTML = `
-      <b>${it.Nama_Komponen}</b> (Qty: ${it.Qty}) - ${it.Keterangan_Teknisi||''}
-      <div class="row">
-        <div><label>Nomor Part</label><input class="p-nomor" value="${it.Nomor_Part||''}"></div>
-        <div><label>Estimasi Harga (Rp)</label><input class="p-harga" type="number" value="${it.Estimasi_Harga||''}"></div>
-        <div><label>Ketersediaan</label>
-          <select class="p-ketersediaan">
-            <option ${it.Ketersediaan_Part==='Ready'?'selected':''}>Ready</option>
-            <option ${it.Ketersediaan_Part==='Indent'?'selected':''}>Indent</option>
-            <option ${it.Ketersediaan_Part==='Tidak Tersedia (perlu order)'?'selected':''}>Tidak Tersedia (perlu order)</option>
-          </select>
-        </div>
-      </div>
-      <label>Keterangan tambahan Foreman</label>
-      <textarea class="p-ket" rows="2">${it.Keterangan_Partman||''}</textarea>
-      <button class="secondary" onclick="saveItemForeman('${it.ID_Item}', this)">Simpan Item</button>
-    `;
-    wrap.appendChild(div);
-  });
+  (detail.itemsJasa||[]).forEach(it=>addForemanJasaRow(it));
+  (detail.items||[]).forEach(it=>addForemanPartRow(it));
+}
+function addForemanJasaRow(it){
+  it = it || {};
+  const tr = document.createElement('tr');
+  tr.dataset.id = it.ID_Jasa || '';
+  tr.innerHTML = `
+    <td><input class="fj-nama" value="${escapeHtml(it.Nama_Jasa||'')}"></td>
+    <td><input class="fj-waktu" value="${escapeHtml(it.Waktu||'')}"></td>
+    <td><input class="fj-harga" type="number" min="0" value="${it.Harga_Satuan||''}"></td>
+    <td><input class="fj-ket" value="${escapeHtml(it.Keterangan||'')}"></td>
+    <td>
+      <button type="button" class="secondary" onclick="saveForemanJasaRow(this)">Simpan</button>
+      <button type="button" class="row-remove" onclick="deleteForemanJasaRow(this)" title="Hapus">&times;</button>
+    </td>
+  `;
+  document.getElementById('foremanJasaWrap').appendChild(tr);
+}
+async function saveForemanJasaRow(btn){
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  const namaJasa = tr.querySelector('.fj-nama').value;
+  const waktu = tr.querySelector('.fj-waktu').value;
+  const hargaSatuan = tr.querySelector('.fj-harga').value;
+  const keterangan = tr.querySelector('.fj-ket').value;
+  let res;
+  if(!id){
+    res = await api('addItemJasa','POST',{ idKunjungan: currentDetailId, namaJasa, waktu, hargaSatuan, keterangan });
+    if(res.success) tr.dataset.id = res.idJasa;
+  } else {
+    res = await api('updateRow','POST',{ sheet:'Item_Jasa', id, fields:{
+      Nama_Jasa: namaJasa, Waktu: waktu, Harga_Satuan: hargaSatuan, Keterangan: keterangan
+    }});
+  }
+  btn.textContent = res.success ? 'Tersimpan ✓' : 'Gagal';
+}
+async function deleteForemanJasaRow(btn){
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  if(id){
+    if(!confirm('Hapus baris jasa ini?')) return;
+    await api('deleteRow','POST',{ sheet:'Item_Jasa', id });
+  }
+  tr.remove();
+}
+function addForemanPartRow(it){
+  it = it || {};
+  const tr = document.createElement('tr');
+  tr.dataset.id = it.ID_Item || '';
+  tr.innerHTML = `
+    <td><input class="fp-nama" value="${escapeHtml(it.Nama_Komponen||'')}"></td>
+    <td><input class="fp-qty" type="number" min="1" value="${it.Qty||1}"></td>
+    <td><input class="fp-hargasatuan" type="number" min="0" value="${it.Harga_Satuan_Teknisi||''}"></td>
+    <td><input class="fp-ket-teknisi" value="${escapeHtml(it.Keterangan_Teknisi||'')}"></td>
+    <td><input class="fp-nomorpart" value="${escapeHtml(it.Nomor_Part||'')}"></td>
+    <td><input class="fp-estimasi" type="number" min="0" value="${it.Estimasi_Harga||''}"></td>
+    <td><select class="fp-ketersediaan">
+          <option ${it.Ketersediaan_Part==='Ready'?'selected':''}>Ready</option>
+          <option ${it.Ketersediaan_Part==='Indent'?'selected':''}>Indent</option>
+          <option ${it.Ketersediaan_Part==='Tidak Tersedia (perlu order)'?'selected':''}>Tidak Tersedia (perlu order)</option>
+        </select></td>
+    <td><input class="fp-ket-foreman" value="${escapeHtml(it.Keterangan_Partman||'')}"></td>
+    <td>
+      <button type="button" class="secondary" onclick="saveForemanPartRow(this)">Simpan</button>
+      <button type="button" class="row-remove" onclick="deleteForemanPartRow(this)" title="Hapus">&times;</button>
+    </td>
+  `;
+  document.getElementById('foremanPartsWrap').appendChild(tr);
+}
+async function saveForemanPartRow(btn){
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  const namaKomponen = tr.querySelector('.fp-nama').value;
+  const qty = tr.querySelector('.fp-qty').value;
+  const hargaSatuan = tr.querySelector('.fp-hargasatuan').value;
+  const keterangan = tr.querySelector('.fp-ket-teknisi').value;
+  const nomorPart = tr.querySelector('.fp-nomorpart').value;
+  const estimasiHarga = tr.querySelector('.fp-estimasi').value;
+  const ketersediaanPart = tr.querySelector('.fp-ketersediaan').value;
+  const keteranganPartman = tr.querySelector('.fp-ket-foreman').value;
+  let res;
+  if(!id){
+    res = await api('addItemSaran','POST',{ idKunjungan: currentDetailId, namaKomponen, qty, hargaSatuan, keterangan });
+    if(res.success){
+      tr.dataset.id = res.idItem;
+      res = await api('updateRow','POST',{ sheet:'Item_Saran', id: res.idItem, fields:{
+        Nomor_Part: nomorPart, Estimasi_Harga: estimasiHarga, Ketersediaan_Part: ketersediaanPart, Keterangan_Partman: keteranganPartman
+      }});
+    }
+  } else {
+    res = await api('updateRow','POST',{ sheet:'Item_Saran', id, fields:{
+      Nama_Komponen: namaKomponen, Qty: qty, Harga_Satuan_Teknisi: hargaSatuan, Keterangan_Teknisi: keterangan,
+      Nomor_Part: nomorPart, Estimasi_Harga: estimasiHarga, Ketersediaan_Part: ketersediaanPart, Keterangan_Partman: keteranganPartman
+    }});
+  }
+  btn.textContent = res.success ? 'Tersimpan ✓' : 'Gagal';
+}
+async function deleteForemanPartRow(btn){
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  if(id){
+    if(!confirm('Hapus part ini?')) return;
+    await api('deleteRow','POST',{ sheet:'Item_Saran', id });
+  }
+  tr.remove();
 }
 async function saveForemanChanges(){
   const fields = {
@@ -703,17 +809,6 @@ async function saveForemanChanges(){
   };
   const res = await api('updateKunjungan','POST',{ idKunjungan: currentDetailId, fields });
   alert(res.success ? 'Perubahan tersimpan' : 'Gagal menyimpan: '+(res.error||'unknown error'));
-}
-async function saveItemForeman(idItem, btn){
-  const block = btn.parentElement;
-  await api('updatePartman','POST',{
-    idItem,
-    nomorPart: block.querySelector('.p-nomor').value,
-    estimasiHarga: block.querySelector('.p-harga').value,
-    ketersediaanPart: block.querySelector('.p-ketersediaan').value,
-    keteranganPartman: block.querySelector('.p-ket').value
-  });
-  btn.textContent = 'Tersimpan ✓';
 }
 async function finishAndGenerate(){
   const res = await api('generateReport','POST',{idKunjungan: currentDetailId});
