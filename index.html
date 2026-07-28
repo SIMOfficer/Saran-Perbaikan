@@ -123,6 +123,9 @@ async function loadMasterData(){
   masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[], Technical_Information:[], Alasan_Technical:[] };
   return masterData;
 }
+function normalizeNoPolisi(el){
+  el.value = el.value.toUpperCase().split(' ').join('');
+}
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -199,7 +202,7 @@ async function renderInputTeknisi(app){
   <div class="card">
     <h3>Data Unit / Customer</h3>
     <div class="row">
-      <div><label class="req">No. Polisi</label><input id="noPolisi" placeholder="D 1234 ABC"></div>
+      <div><label class="req">No. Polisi</label><input id="noPolisi" placeholder="D 1234 ABC" oninput="normalizeNoPolisi(this)"></div>
       <div><label class="req">Nama Customer</label><input id="namaCustomer"></div>
       <div><label>No. HP Customer</label><input id="noHp"></div>
     </div>
@@ -549,7 +552,7 @@ async function submitKunjungan(){
       hasil: document.getElementById('hhcHasil').value
     };
     const body = {
-      noPolisi: document.getElementById('noPolisi').value,
+      noPolisi: document.getElementById('noPolisi').value.toUpperCase().split(' ').join(''),
       namaCustomer: document.getElementById('namaCustomer').value,
       noHp: document.getElementById('noHp').value,
       tipeMobil, tipeService,
