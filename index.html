@@ -138,6 +138,18 @@ function ensureOptionPresent(values, value){
   values = values || [];
   return (value && !values.includes(value)) ? values.concat([value]) : values;
 }
+// Set value sebuah <select>, dan kalau value itu bukan salah satu <option> yang ada
+// (mis. MasterData sudah diubah sejak baris ini dibuat), sisipkan dulu sebagai
+// option baru supaya nilai lama tetap terlihat & tidak diam-diam jadi kosong.
+function setSelectValuePreserving(selectEl, value){
+  if(!value){ selectEl.value = ''; return; }
+  if(![...selectEl.options].some(o=>o.value===value)){
+    const opt = document.createElement('option');
+    opt.value = value; opt.textContent = value;
+    selectEl.appendChild(opt);
+  }
+  selectEl.value = value;
+}
 function optionListWithOther(values){
   return optionList(values) + '<option value="Others">Others</option>';
 }
@@ -724,21 +736,27 @@ async function openForemanEdit(id){
   ${ujiEmisiCardHtml()}
   <button class="primary" onclick="saveForemanChanges()">Simpan Perubahan</button>
 
-  <button class="primary" onclick="finishAndGenerate()">Selesai &amp; Buat Report PDF</button>
+  <div class="card" style="margin-top:16px;">
+    <label class="req">Nama Foreman</label>
+    <input id="namaForeman" placeholder="Nama Anda">
+    <p class="note">Klik tombol di bawah untuk menyimpan seluruh perubahan lalu mengirim report ke Service Advisor.</p>
+    <button class="primary" onclick="finishAndGenerate(this)">Kirim ke SA</button>
+  </div>
   `;
   document.getElementById('noPolisi').value = kj.No_Polisi || '';
   document.getElementById('namaCustomer').value = kj.Nama_Customer || '';
   document.getElementById('noHp').value = kj.No_HP_Customer || '';
-  document.getElementById('tipeMobil').value = kj.Tipe_Mobil || '';
-  document.getElementById('tipeService').value = kj.Tipe_Service || '';
+  setSelectValuePreserving(document.getElementById('tipeMobil'), kj.Tipe_Mobil);
+  setSelectValuePreserving(document.getElementById('tipeService'), kj.Tipe_Service);
   document.getElementById('tanggalService').value = toDateInputValue(kj.Tanggal_Masuk);
-  document.getElementById('sa').value = kj.SA || '';
-  document.getElementById('teknisi').value = kj.Teknisi || '';
+  setSelectValuePreserving(document.getElementById('sa'), kj.SA);
+  setSelectValuePreserving(document.getElementById('teknisi'), kj.Teknisi);
   fillProsesServiceFromKunjungan(kj);
   fillHybridHealthCheckFromKunjungan(kj);
   fillUjiEmisiFromKunjungan(kj);
   document.getElementById('sscTerlibat').value = kj.SSC_Terlibat || 'No';
   toggleSSC();
+  document.getElementById('namaForeman').value = kj.Nama_Foreman || '';
 
   (detail.itemsJasa||[]).forEach(it=>addForemanJasaRow(it));
   (detail.items||[]).forEach(it=>addForemanPartRow(it));
@@ -945,7 +963,7 @@ async function deleteForemanTIRow(btn){
   }
   tr.remove();
 }
-async function saveForemanChanges(){
+async function collectAndSaveForemanChanges(){
   const fields = {
     No_Polisi: document.getElementById('noPolisi').value.toUpperCase().split(' ').join(''),
     Nama_Customer: document.getElementById('namaCustomer').value,
@@ -990,12 +1008,24 @@ async function saveForemanChanges(){
     if(uploadRes && uploadRes.url) fields.UjiEmisi_Foto_URL = uploadRes.url;
     else if(uploadRes && uploadRes.error) alert('Gagal upload foto uji emisi: '+uploadRes.error);
   }
-  const res = await api('updateKunjungan','POST',{ idKunjungan: currentDetailId, fields });
+  return await api('updateKunjungan','POST',{ idKunjungan: currentDetailId, fields });
+}
+async function saveForemanChanges(){
+  const res = await collectAndSaveForemanChanges();
   alert(res.success ? 'Perubahan tersimpan' : 'Gagal menyimpan: '+(res.error||'unknown error'));
 }
-async function finishAndGenerate(){
-  const res = await api('generateReport','POST',{idKunjungan: currentDetailId});
-  alert(res.demo ? 'Demo: PDF akan dibuat setelah API terhubung.' : 'Report dibuat: '+res.pdfUrl);
+async function finishAndGenerate(btn){
+  const namaForeman = document.getElementById('namaForeman').value;
+  if(!namaForeman){ alert('Nama Foreman wajib diisi'); return; }
+  if(btn){ btn.disabled = true; btn.textContent = 'Mengirim...'; }
+  try{
+    const saveRes = await collectAndSaveForemanChanges();
+    if(!saveRes.success && !saveRes.demo){ alert('Gagal menyimpan perubahan: '+(saveRes.error||'unknown error')); return; }
+    const res = await api('generateReport','POST',{idKunjungan: currentDetailId, namaForeman});
+    alert(res.demo ? 'Demo: PDF akan dibuat setelah API terhubung.' : 'Report terkirim ke SA: '+res.pdfUrl);
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = 'Kirim ke SA'; }
+  }
 }
 
 /* ---------- SA: follow up & laporan ---------- */

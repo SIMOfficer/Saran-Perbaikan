@@ -41,8 +41,8 @@
 
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
-const PDF_TEMPLATE_ID = '1IP_2tMxMMXprOvNy9HbsTBrS4LK2lw6cDfV2UThQ1VQ'; // Template dokumen report
-const CODE_VERSION = 'v13-foreman-phase3'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
+const CODE_VERSION = 'v14-foreman-kirim-sa'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -58,7 +58,8 @@ const HEADERS = {
     'Lampu_Status','Lampu_Keterangan','Lampu_Harga',
     'Mobil_Hybrid','SBE_50K_100K','Mobil_2_5_Tahun','HHC','HHC_Hasil',
     'SSC_Terlibat',
-    'UjiEmisi_Status','UjiEmisi_Foto_URL'],
+    'UjiEmisi_Status','UjiEmisi_Foto_URL',
+    'Nama_Foreman'],
   // "Nama Parts" di Saran Perbaikan - Harga_Satuan_Teknisi adalah estimasi harga part dari
   // Teknisi sendiri saat input awal, terpisah dari Estimasi_Harga yang diisi Partman belakangan.
   Item_Saran: ['ID_Item','ID_Kunjungan','Nama_Komponen','Qty','Keterangan_Teknisi',
@@ -158,7 +159,7 @@ function doPost(e) {
       case 'updateRow': result = updateRowByField(body.sheet, body.id, body.fields); break;
       case 'deleteRow': result = deleteRowByField(body.sheet, body.id); break;
       case 'uploadFoto': result = uploadFoto(body); break;
-      case 'generateReport': result = generateReport(body.idKunjungan); break;
+      case 'generateReport': result = generateReport(body.idKunjungan, body.namaForeman); break;
       case 'updateFollowUp': result = updateFollowUp(body); break;
       default: result = { error: 'Unknown action' };
     }
@@ -432,12 +433,31 @@ function insertTableAtPlaceholder(body, placeholder, tableData) {
   return table;
 }
 
-/** ============ GENERATE PDF REPORT UNTUK CUSTOMER ============ */
-function generateReport(idKunjungan) {
+function formatRupiahOrDash(v) {
+  const n = Number(v) || 0;
+  return n ? n.toLocaleString('id-ID') : '-';
+}
+
+/** Lampirkan 1 foto (dari URL Drive share-link) di akhir dokumen dengan judul. */
+function appendFotoIfAny(body, label, fotoUrl) {
+  if (!fotoUrl) return;
+  body.appendParagraph('Foto: ' + label);
+  try {
+    const fileId = fotoUrl.match(/[-\w]{25,}/)[0];
+    const imgBlob = DriveApp.getFileById(fileId).getBlob();
+    body.appendImage(imgBlob).setWidth(300);
+  } catch (e) { /* skip jika gagal ambil gambar */ }
+}
+
+/** ============ GENERATE PDF REPORT (Foreman -> SA) ============ */
+function generateReport(idKunjungan, namaForeman) {
   const detail = getKunjunganDetail(idKunjungan);
   if (detail.error) return detail;
   const kj = detail.kunjungan;
-  const items = detail.items;
+  const items = detail.items || [];
+  const itemsJasa = detail.itemsJasa || [];
+  const itemsSSC = detail.itemsSSC || [];
+  const itemsTI = detail.itemsTechnicalInfo || [];
 
   // Duplikat template Google Docs, isi placeholder, export ke PDF
   const templateFile = DriveApp.getFileById(PDF_TEMPLATE_ID);
@@ -446,36 +466,90 @@ function generateReport(idKunjungan) {
   const doc = DocumentApp.openById(docCopy.getId());
   const body = doc.getBody();
 
-  body.replaceText('{{NO_POLISI}}', kj.No_Polisi);
-  body.replaceText('{{NAMA_CUSTOMER}}', kj.Nama_Customer);
-  body.replaceText('{{TANGGAL}}', Utilities.formatDate(new Date(kj.Tanggal_Masuk), 'GMT+7', 'dd/MM/yyyy'));
-  body.replaceText('{{SA}}', kj.SA);
-  body.replaceText('{{TEKNISI}}', kj.Teknisi);
+  // Header
+  body.replaceText('{{NO_POLISI}}', kj.No_Polisi || '');
+  body.replaceText('{{NAMA_CUSTOMER}}', kj.Nama_Customer || '');
+  body.replaceText('{{TIPE_MOBIL}}', kj.Tipe_Mobil || '');
+  body.replaceText('{{TIPE_SERVICE}}', kj.Tipe_Service || '');
+  body.replaceText('{{TANGGAL_SERVICE}}', kj.Tanggal_Masuk ? Utilities.formatDate(new Date(kj.Tanggal_Masuk), 'GMT+7', 'dd/MM/yyyy') : '-');
+  body.replaceText('{{SERVICE_ADVISOR}}', kj.SA || '');
+  body.replaceText('{{MEKANIK}}', kj.Teknisi || '');
 
-  let total = 0;
-  const tableData = [['No', 'Komponen', 'Qty', 'No. Part', 'Est. Harga', 'Ketersediaan', 'Ket.']];
+  // Proses Service
+  body.replaceText('{{PEKERJAAN}}', kj.Pekerjaan || '-');
+  body.replaceText('{{REQUEST_CUSTOMER}}', kj.Request_Customer || '-');
+  body.replaceText('{{AKI_STATUS}}', kj.Aki_Status || '-');
+  body.replaceText('{{AKI_KETERANGAN}}', kj.Aki_Keterangan || '-');
+  body.replaceText('{{AKI_HARGA}}', formatRupiahOrDash(kj.Aki_Harga));
+  body.replaceText('{{BAN_STATUS}}', kj.Ban_Status || '-');
+  body.replaceText('{{BAN_KETERANGAN}}', kj.Ban_Keterangan || '-');
+  body.replaceText('{{BAN_MERK1}}', kj.Ban_Merk1 || '-');
+  body.replaceText('{{BAN_HARGA1}}', formatRupiahOrDash(kj.Ban_Harga1));
+  body.replaceText('{{BAN_MERK2}}', kj.Ban_Merk2 || '-');
+  body.replaceText('{{BAN_HARGA2}}', formatRupiahOrDash(kj.Ban_Harga2));
+  body.replaceText('{{KAMPASREM_STATUS}}', kj.KampasRem_Status || '-');
+  body.replaceText('{{KAMPASREM_KETERANGAN}}', kj.KampasRem_Keterangan || '-');
+  body.replaceText('{{KAMPASREM_HARGA}}', formatRupiahOrDash(kj.KampasRem_Harga));
+  body.replaceText('{{WIPER_STATUS}}', kj.Wiper_Status || '-');
+  body.replaceText('{{WIPER_KETERANGAN}}', kj.Wiper_Keterangan || '-');
+  body.replaceText('{{WIPER_HARGA}}', formatRupiahOrDash(kj.Wiper_Harga));
+  body.replaceText('{{LAMPU_STATUS}}', kj.Lampu_Status || '-');
+  body.replaceText('{{LAMPU_KETERANGAN}}', kj.Lampu_Keterangan || '-');
+  body.replaceText('{{LAMPU_HARGA}}', formatRupiahOrDash(kj.Lampu_Harga));
+
+  // Saran Perbaikan - Nama Jasa
+  let totalJasa = 0;
+  const tableJasa = [['No', 'Nama Jasa', 'Waktu', 'Harga Satuan', 'Keterangan']];
+  itemsJasa.forEach((it, i) => {
+    const harga = Number(it.Harga_Satuan) || 0;
+    totalJasa += harga;
+    tableJasa.push([i + 1, it.Nama_Jasa, it.Waktu || '-', formatRupiahOrDash(harga), it.Keterangan || '-']);
+  });
+  insertTableAtPlaceholder(body, '{{TABEL_JASA}}', tableJasa);
+  body.replaceText('{{TOTAL_JASA}}', 'Rp ' + totalJasa.toLocaleString('id-ID'));
+
+  // Saran Perbaikan - Nama Parts (harga pakai Estimasi_Harga Foreman, fallback ke estimasi Teknisi)
+  let totalParts = 0;
+  const tableParts = [['No', 'Nama Parts', 'Qty', 'Harga Satuan', 'Total', 'Keterangan']];
   items.forEach((it, i) => {
-    const harga = Number(it.Estimasi_Harga) || 0;
-    total += harga * Number(it.Qty || 1);
-    tableData.push([i + 1, it.Nama_Komponen, it.Qty, it.Nomor_Part || '-',
-      harga ? harga.toLocaleString('id-ID') : '-', it.Ketersediaan_Part || '-',
-      it.Keterangan_Partman || it.Keterangan_Teknisi || '-']);
+    const qty = Number(it.Qty) || 1;
+    const harga = Number(it.Estimasi_Harga) || Number(it.Harga_Satuan_Teknisi) || 0;
+    const rowTotal = harga * qty;
+    totalParts += rowTotal;
+    tableParts.push([i + 1, it.Nama_Komponen, qty, formatRupiahOrDash(harga),
+      formatRupiahOrDash(rowTotal), it.Keterangan_Partman || it.Keterangan_Teknisi || '-']);
   });
-  // Sisipkan tabel tepat di posisi placeholder {{TABEL_ITEM}} (fallback: akhir dokumen)
-  const table = insertTableAtPlaceholder(body, '{{TABEL_ITEM}}', tableData);
-  body.replaceText('{{TOTAL_ESTIMASI}}', 'Rp ' + total.toLocaleString('id-ID'));
+  insertTableAtPlaceholder(body, '{{TABEL_PARTS}}', tableParts);
+  body.replaceText('{{TOTAL_PARTS}}', 'Rp ' + totalParts.toLocaleString('id-ID'));
+  body.replaceText('{{TOTAL_ESTIMASI}}', 'Rp ' + (totalJasa + totalParts).toLocaleString('id-ID'));
 
-  // Lampirkan foto komponen (jika ada) di halaman berikut
-  items.forEach(it => {
-    if (it.Foto_URL) {
-      body.appendParagraph('Foto: ' + it.Nama_Komponen);
-      try {
-        const fileId = it.Foto_URL.match(/[-\w]{25,}/)[0];
-        const imgBlob = DriveApp.getFileById(fileId).getBlob();
-        body.appendImage(imgBlob).setWidth(300);
-      } catch (e) { /* skip jika gagal ambil gambar */ }
-    }
-  });
+  // Hybrid Health Check
+  body.replaceText('{{MOBIL_HYBRID}}', kj.Mobil_Hybrid || 'No');
+  body.replaceText('{{SBE_50K_100K}}', kj.SBE_50K_100K || '-');
+  body.replaceText('{{MOBIL_2_5_TAHUN}}', kj.Mobil_2_5_Tahun || '-');
+  body.replaceText('{{PENGERJAAN_HHC}}', kj.HHC || '-');
+  body.replaceText('{{HASIL_HHC}}', kj.HHC_Hasil || '-');
+
+  // Special Service Campaign
+  const tableSSC = [['No', 'Jenis SSC', 'Status', 'Alasan']];
+  itemsSSC.forEach((it, i) => tableSSC.push([i + 1, it.SSC, it.Status || '-', it.Alasan || '-']));
+  insertTableAtPlaceholder(body, '{{TABEL_SSC}}', tableSSC);
+
+  // Technical Information
+  const tableTI = [['No', 'Technical Information', 'Status', 'Alasan']];
+  itemsTI.forEach((it, i) => tableTI.push([i + 1, it.Technical_Information, it.Status || '-', it.Alasan || '-']));
+  insertTableAtPlaceholder(body, '{{TABEL_TI}}', tableTI);
+
+  // Uji Emisi
+  body.replaceText('{{UJI_EMISI_STATUS}}', kj.UjiEmisi_Status || 'Tidak Aktif');
+
+  // Tanda tangan
+  body.replaceText('{{TANGGAL}}', Utilities.formatDate(new Date(), 'GMT+7', 'dd/MM/yyyy'));
+  body.replaceText('{{NAMA_FOREMAN}}', namaForeman || '');
+
+  // Dokumentasi: foto part yang ada fotonya + foto sertifikat uji emisi
+  items.forEach(it => appendFotoIfAny(body, it.Nama_Komponen, it.Foto_URL));
+  appendFotoIfAny(body, 'Sertifikat Uji Emisi', kj.UjiEmisi_Foto_URL);
 
   doc.saveAndClose();
 
@@ -484,17 +558,22 @@ function generateReport(idKunjungan) {
   pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   DriveApp.getFileById(docCopy.getId()).setTrashed(true); // hapus file docs sementara, sisakan PDF
 
-  // update status kunjungan
+  // update status kunjungan + simpan nama Foreman yang mengirim
   const sh = getSheet('Kunjungan');
   const data = sh.getDataRange().getValues();
+  const header = data[0];
+  const statusCol = header.indexOf('Status');
+  const pdfCol = header.indexOf('PDF_URL');
+  const foremanCol = header.indexOf('Nama_Foreman');
   for (let r = 1; r < data.length; r++) {
     if (data[r][0] === idKunjungan) {
-      sh.getRange(r + 1, 9).setValue('Report Terkirim'); // kolom I = Status
-      sh.getRange(r + 1, 10).setValue(pdfFile.getUrl()); // kolom J = PDF_URL
+      sh.getRange(r + 1, statusCol + 1).setValue('Report Terkirim');
+      sh.getRange(r + 1, pdfCol + 1).setValue(pdfFile.getUrl());
+      if (foremanCol !== -1 && namaForeman) sh.getRange(r + 1, foremanCol + 1).setValue(namaForeman);
       break;
     }
   }
-  return { success: true, pdfUrl: pdfFile.getUrl(), totalEstimasi: total };
+  return { success: true, pdfUrl: pdfFile.getUrl(), totalEstimasi: totalJasa + totalParts };
 }
 
 /** ============ SA: FOLLOW UP (H+3) ============ */
