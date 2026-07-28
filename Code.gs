@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1IP_2tMxMMXprOvNy9HbsTBrS4LK2lw6cDfV2UThQ1VQ'; // Template dokumen report
-const CODE_VERSION = 'v11-foreman-phase1'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v12-foreman-phase2'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -149,6 +149,7 @@ function doPost(e) {
     let result;
     switch (action) {
       case 'createKunjungan': result = createKunjungan(body); break;
+      case 'updateKunjungan': result = updateKunjungan(body); break;
       case 'addItemSaran': result = addItemSaran(body); break;
       case 'addItemJasa': result = addItemJasa(body); break;
       case 'addItemSSC': result = addItemSSC(body); break;
@@ -210,6 +211,29 @@ function createKunjungan(body) {
     body.itemsTechnicalInfo.forEach(it => addItemTechnicalInfo({ idKunjungan: id, ...it }));
   }
   return { success: true, idKunjungan: id };
+}
+
+/** Update sebagian field kunjungan yang sudah ada, dicari lewat nama kolom di header
+ *  (bukan nomor kolom tetap) - supaya aman dipakai untuk field mana pun tanpa perlu
+ *  hardcode index tiap kali skema Kunjungan bertambah. Dipakai oleh Foreman untuk
+ *  mengedit Data Unit/Customer, Proses Service, dan section lain nantinya. */
+function updateKunjungan(body) {
+  if (!body.idKunjungan || !body.fields) {
+    return { error: 'idKunjungan dan fields wajib diisi' };
+  }
+  const sh = getSheet('Kunjungan');
+  const data = sh.getDataRange().getValues();
+  const header = data[0];
+  for (let r = 1; r < data.length; r++) {
+    if (data[r][0] === body.idKunjungan) {
+      Object.keys(body.fields).forEach(key => {
+        const col = header.indexOf(key);
+        if (col !== -1) sh.getRange(r + 1, col + 1).setValue(body.fields[key]);
+      });
+      return { success: true };
+    }
+  }
+  return { error: 'Kunjungan tidak ditemukan' };
 }
 
 /** Teknisi tambah 1 item part (Nama Parts) ke kunjungan yang sudah ada */
