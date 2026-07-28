@@ -16,7 +16,7 @@
  * F: No_HP_Customer
  * G: SA (Service Advisor)
  * H: Teknisi
- * I: Status  (Menunggu Partman / Siap Report / Report Terkirim / Follow Up / Deal / Tidak Deal)
+ * I: Status  (Menunggu Foreman / Siap Report / Report Terkirim / Follow Up / Deal / Tidak Deal)
  * J: PDF_URL
  * K: Tanggal_FollowUp_Rencana  (otomatis = Tanggal_Masuk + 3 hari)
  * L: Status_FollowUp  (Belum / Deal / Tidak Deal / Reschedule)
@@ -29,10 +29,10 @@
  * C: Nama_Komponen        (wajib - Teknisi)
  * D: Qty                  (wajib - Teknisi)
  * E: Keterangan_Teknisi   (opsional - Teknisi)
- * F: Nomor_Part           (diisi Partman/Foreman)
- * G: Estimasi_Harga       (diisi Partman/Foreman)
- * H: Ketersediaan_Part    (diisi Partman/Foreman)
- * I: Keterangan_Partman   (opsional - Partman/Foreman)
+ * F: Nomor_Part           (diisi Foreman)
+ * G: Estimasi_Harga       (diisi Foreman)
+ * H: Ketersediaan_Part    (diisi Foreman)
+ * I: Keterangan_Partman   (opsional - diisi Foreman)
  * J: Foto_URL             (opsional, link Drive)
  * K: Diisi_Teknisi_At
  * L: Diisi_Partman_At
@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1IP_2tMxMMXprOvNy9HbsTBrS4LK2lw6cDfV2UThQ1VQ'; // Template dokumen report
-const CODE_VERSION = 'v10-uji-emisi'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v11-foreman-phase1'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -181,7 +181,7 @@ function createKunjungan(body) {
   const hhc = body.hybridHealthCheck || {};
   const ujiEmisi = body.ujiEmisi || {};
   sh.appendRow([id, now, body.tanggalMasuk || now, body.noPolisi, body.namaCustomer,
-    body.noHp || '', body.sa, body.teknisi, 'Menunggu Partman', '', followUpDate, 'Belum', '', '',
+    body.noHp || '', body.sa, body.teknisi, 'Menunggu Foreman', '', followUpDate, 'Belum', '', '',
     body.tipeMobil || '', body.tipeService || '',
     p.pekerjaan || '', p.requestCustomer || '',
     aki.status || 'OK', aki.keterangan || '', aki.harga || '',
