@@ -192,13 +192,8 @@ function toggleHHC(){
     document.getElementById('hhcHasil').value = '';
   }
 }
-async function renderInputTeknisi(app){
-  itemCount = 0;
-  jasaCount = 0;
-  app.innerHTML = `<div class="card"><p class="note">Memuat data...</p></div>`;
-  const md = await loadMasterData();
-  const today = new Date().toISOString().slice(0,10);
-  app.innerHTML = `
+function dataUnitCardHtml(md, today){
+  return `
   <div class="card">
     <h3>Data Unit / Customer</h3>
     <div class="row">
@@ -215,8 +210,10 @@ async function renderInputTeknisi(app){
       <div><label class="req">Service Advisor</label><select id="sa">${optionList(md.Service_Advisor)}</select></div>
       <div><label class="req">Teknisi</label><select id="teknisi">${optionList(md.Teknisi)}</select></div>
     </div>
-  </div>
-
+  </div>`;
+}
+function prosesServiceCardHtml(){
+  return `
   <div class="card">
     <h3>Proses Service</h3>
     <label>Pekerjaan</label>
@@ -254,7 +251,39 @@ async function renderInputTeknisi(app){
         </tbody>
       </table>
     </div>
-  </div>
+  </div>`;
+}
+function toDateInputValue(isoString){
+  if(!isoString) return '';
+  const d = new Date(isoString);
+  if(isNaN(d)) return '';
+  const local = new Date(d.getTime() - d.getTimezoneOffset()*60000);
+  return local.toISOString().slice(0,10);
+}
+function fillProsesServiceFromKunjungan(kj){
+  document.getElementById('pekerjaan').value = kj.Pekerjaan || '';
+  document.getElementById('requestCustomer').value = kj.Request_Customer || '';
+  ['aki','ban','kampasRem','wiper','lampu'].forEach(key=>{
+    const prefix = key === 'kampasRem' ? 'KampasRem' : key.charAt(0).toUpperCase()+key.slice(1);
+    document.getElementById('chk-status-'+key).value = kj[prefix+'_Status'] || 'OK';
+    document.getElementById('chk-ket-'+key).value = kj[prefix+'_Keterangan'] || '';
+    document.getElementById('chk-harga-'+key).value = kj[prefix+'_Harga'] || '';
+  });
+  document.getElementById('ban-merk1').value = kj.Ban_Merk1 || '';
+  document.getElementById('ban-harga1').value = kj.Ban_Harga1 || '';
+  document.getElementById('ban-merk2').value = kj.Ban_Merk2 || '';
+  document.getElementById('ban-harga2').value = kj.Ban_Harga2 || '';
+  ['aki','ban','kampasRem','wiper','lampu'].forEach(key=>toggleHarga(key));
+}
+async function renderInputTeknisi(app){
+  itemCount = 0;
+  jasaCount = 0;
+  app.innerHTML = `<div class="card"><p class="note">Memuat data...</p></div>`;
+  const md = await loadMasterData();
+  const today = new Date().toISOString().slice(0,10);
+  app.innerHTML = `
+  ${dataUnitCardHtml(md, today)}
+  ${prosesServiceCardHtml()}
 
   <div class="card">
     <h3>Saran Perbaikan</h3>
@@ -592,10 +621,31 @@ async function renderAntrianForeman(app){
 }
 async function openForemanEdit(id){
   currentDetailId = id;
-  const detail = await api('getKunjungan','GET',{id});
   const app = document.getElementById('app');
-  app.innerHTML = `<div class="card"><h3>Edit Data Kunjungan - ${id}</h3><div id="itemsDetail"></div>
-    <button class="primary" onclick="finishAndGenerate()">Selesai &amp; Buat Report PDF</button></div>`;
+  app.innerHTML = `<div class="card"><p class="note">Memuat data...</p></div>`;
+  const md = await loadMasterData();
+  const detail = await api('getKunjungan','GET',{id});
+  const kj = detail.kunjungan;
+  app.innerHTML = `
+  <h3 style="margin:0 0 4px;">Edit Data Kunjungan - ${id}</h3>
+  ${dataUnitCardHtml(md, '')}
+  ${prosesServiceCardHtml()}
+  <button class="primary" onclick="saveForemanChanges()">Simpan Perubahan</button>
+
+  <div class="card" style="margin-top:16px;"><h3>Saran Perbaikan (Parts)</h3><div id="itemsDetail"></div></div>
+
+  <button class="primary" onclick="finishAndGenerate()">Selesai &amp; Buat Report PDF</button>
+  `;
+  document.getElementById('noPolisi').value = kj.No_Polisi || '';
+  document.getElementById('namaCustomer').value = kj.Nama_Customer || '';
+  document.getElementById('noHp').value = kj.No_HP_Customer || '';
+  document.getElementById('tipeMobil').value = kj.Tipe_Mobil || '';
+  document.getElementById('tipeService').value = kj.Tipe_Service || '';
+  document.getElementById('tanggalService').value = toDateInputValue(kj.Tanggal_Masuk);
+  document.getElementById('sa').value = kj.SA || '';
+  document.getElementById('teknisi').value = kj.Teknisi || '';
+  fillProsesServiceFromKunjungan(kj);
+
   const wrap = document.getElementById('itemsDetail');
   (detail.items||[]).forEach(it=>{
     const div = document.createElement('div');
@@ -619,6 +669,40 @@ async function openForemanEdit(id){
     `;
     wrap.appendChild(div);
   });
+}
+async function saveForemanChanges(){
+  const fields = {
+    No_Polisi: document.getElementById('noPolisi').value.toUpperCase().split(' ').join(''),
+    Nama_Customer: document.getElementById('namaCustomer').value,
+    No_HP_Customer: document.getElementById('noHp').value,
+    Tipe_Mobil: document.getElementById('tipeMobil').value,
+    Tipe_Service: document.getElementById('tipeService').value,
+    Tanggal_Masuk: document.getElementById('tanggalService').value,
+    SA: document.getElementById('sa').value,
+    Teknisi: document.getElementById('teknisi').value,
+    Pekerjaan: document.getElementById('pekerjaan').value,
+    Request_Customer: document.getElementById('requestCustomer').value,
+    Aki_Status: document.getElementById('chk-status-aki').value,
+    Aki_Keterangan: document.getElementById('chk-ket-aki').value,
+    Aki_Harga: document.getElementById('chk-harga-aki').value,
+    Ban_Status: document.getElementById('chk-status-ban').value,
+    Ban_Keterangan: document.getElementById('chk-ket-ban').value,
+    Ban_Merk1: document.getElementById('ban-merk1').value,
+    Ban_Harga1: document.getElementById('ban-harga1').value,
+    Ban_Merk2: document.getElementById('ban-merk2').value,
+    Ban_Harga2: document.getElementById('ban-harga2').value,
+    KampasRem_Status: document.getElementById('chk-status-kampasRem').value,
+    KampasRem_Keterangan: document.getElementById('chk-ket-kampasRem').value,
+    KampasRem_Harga: document.getElementById('chk-harga-kampasRem').value,
+    Wiper_Status: document.getElementById('chk-status-wiper').value,
+    Wiper_Keterangan: document.getElementById('chk-ket-wiper').value,
+    Wiper_Harga: document.getElementById('chk-harga-wiper').value,
+    Lampu_Status: document.getElementById('chk-status-lampu').value,
+    Lampu_Keterangan: document.getElementById('chk-ket-lampu').value,
+    Lampu_Harga: document.getElementById('chk-harga-lampu').value
+  };
+  const res = await api('updateKunjungan','POST',{ idKunjungan: currentDetailId, fields });
+  alert(res.success ? 'Perubahan tersimpan' : 'Gagal menyimpan: '+(res.error||'unknown error'));
 }
 async function saveItemForeman(idItem, btn){
   const block = btn.parentElement;
