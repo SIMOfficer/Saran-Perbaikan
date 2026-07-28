@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1IP_2tMxMMXprOvNy9HbsTBrS4LK2lw6cDfV2UThQ1VQ'; // Template dokumen report
-const CODE_VERSION = 'v12-foreman-phase2'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v13-foreman-phase3'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -155,6 +155,8 @@ function doPost(e) {
       case 'addItemSSC': result = addItemSSC(body); break;
       case 'addItemTechnicalInfo': result = addItemTechnicalInfo(body); break;
       case 'updatePartman': result = updatePartmanItem(body); break;
+      case 'updateRow': result = updateRowByField(body.sheet, body.id, body.fields); break;
+      case 'deleteRow': result = deleteRowByField(body.sheet, body.id); break;
       case 'uploadFoto': result = uploadFoto(body); break;
       case 'generateReport': result = generateReport(body.idKunjungan); break;
       case 'updateFollowUp': result = updateFollowUp(body); break;
@@ -234,6 +236,44 @@ function updateKunjungan(body) {
     }
   }
   return { error: 'Kunjungan tidak ditemukan' };
+}
+
+/** Update sebagian field 1 baris di sheet mana pun (dicari lewat ID di kolom A),
+ *  field dicari lewat nama header supaya tidak perlu hardcode nomor kolom.
+ *  Dipakai Foreman untuk full-edit Item_Saran/Item_Jasa/dst tanpa perlu fungsi
+ *  update terpisah per sheet. sheetName divalidasi terhadap HEADERS supaya
+ *  tidak bisa dipakai untuk menyentuh sheet sembarangan. */
+function updateRowByField(sheetName, idValue, fields) {
+  if (!HEADERS[sheetName]) return { error: 'Sheet tidak dikenal: ' + sheetName };
+  if (!idValue || !fields) return { error: 'id dan fields wajib diisi' };
+  const sh = getSheet(sheetName);
+  const data = sh.getDataRange().getValues();
+  const header = data[0];
+  for (let r = 1; r < data.length; r++) {
+    if (data[r][0] === idValue) {
+      Object.keys(fields).forEach(key => {
+        const col = header.indexOf(key);
+        if (col !== -1) sh.getRange(r + 1, col + 1).setValue(fields[key]);
+      });
+      return { success: true };
+    }
+  }
+  return { error: 'Baris tidak ditemukan' };
+}
+
+/** Hapus 1 baris dari sheet mana pun (dicari lewat ID di kolom A). */
+function deleteRowByField(sheetName, idValue) {
+  if (!HEADERS[sheetName]) return { error: 'Sheet tidak dikenal: ' + sheetName };
+  if (!idValue) return { error: 'id wajib diisi' };
+  const sh = getSheet(sheetName);
+  const data = sh.getDataRange().getValues();
+  for (let r = 1; r < data.length; r++) {
+    if (data[r][0] === idValue) {
+      sh.deleteRow(r + 1);
+      return { success: true };
+    }
+  }
+  return { error: 'Baris tidak ditemukan' };
 }
 
 /** Teknisi tambah 1 item part (Nama Parts) ke kunjungan yang sudah ada */
