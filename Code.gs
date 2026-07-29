@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v19-report-format-ketersediaan'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v21-photo-grid-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -477,15 +477,35 @@ function formatRupiahOrDash(v) {
   return n ? 'Rp ' + n.toLocaleString('id-ID') : '-';
 }
 
-/** Lampirkan 1 foto (dari URL Drive share-link) di akhir dokumen dengan judul. */
-function appendFotoIfAny(body, label, fotoUrl) {
-  if (!fotoUrl) return;
-  body.appendParagraph('Foto: ' + label);
-  try {
-    const fileId = fotoUrl.match(/[-\w]{25,}/)[0];
-    const imgBlob = DriveApp.getFileById(fileId).getBlob();
-    body.appendImage(imgBlob).setWidth(300);
-  } catch (e) { /* skip jika gagal ambil gambar */ }
+const PHOTOS_PER_ROW = 3;
+
+/** Lampirkan beberapa foto (dari URL Drive share-link) di akhir dokumen dalam
+ *  grid beberapa kolom sejajar (caption "Foto: Label" di atas tiap gambar),
+ *  bukan 1 foto per halaman penuh - supaya tidak makan tempat berlebihan.
+ *  `photos` = [{label, fotoUrl}, ...]; entri tanpa fotoUrl diabaikan. */
+function appendPhotoGrid(body, photos) {
+  const valid = photos.filter(p => p.fotoUrl);
+  if (!valid.length) return;
+
+  const contentWidth = body.getPageWidth() - body.getMarginLeft() - body.getMarginRight();
+
+  for (let i = 0; i < valid.length; i += PHOTOS_PER_ROW) {
+    const rowPhotos = valid.slice(i, i + PHOTOS_PER_ROW);
+    const table = body.appendTable([rowPhotos.map(() => '')]);
+    table.setBorderWidth(0);
+    const cellWidth = contentWidth / rowPhotos.length;
+    rowPhotos.forEach((p, c) => {
+      const cell = table.getCell(0, c);
+      const captionPara = cell.getChild(0).asParagraph();
+      captionPara.setText('Foto: ' + p.label);
+      captionPara.setItalic(true);
+      try {
+        const fileId = p.fotoUrl.match(/[-\w]{25,}/)[0];
+        const imgBlob = DriveApp.getFileById(fileId).getBlob();
+        cell.appendImage(imgBlob).setWidth(cellWidth - 20);
+      } catch (e) { /* skip jika gagal ambil gambar */ }
+    });
+  }
 }
 
 /** ============ GENERATE PDF REPORT (Foreman -> SA) ============ */
@@ -587,8 +607,9 @@ function generateReport(idKunjungan, namaForeman) {
   body.replaceText('{{NAMA_FOREMAN}}', namaForeman || '');
 
   // Dokumentasi: foto part yang ada fotonya + foto sertifikat uji emisi
-  items.forEach(it => appendFotoIfAny(body, it.Nama_Komponen, it.Foto_URL));
-  appendFotoIfAny(body, 'Sertifikat Uji Emisi', kj.UjiEmisi_Foto_URL);
+  const photos = items.map(it => ({ label: it.Nama_Komponen, fotoUrl: it.Foto_URL }));
+  photos.push({ label: 'Sertifikat Uji Emisi', fotoUrl: kj.UjiEmisi_Foto_URL });
+  appendPhotoGrid(body, photos);
 
   doc.saveAndClose();
 
