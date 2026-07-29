@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v21-photo-grid-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v22-photo-aspect-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -502,7 +502,13 @@ function appendPhotoGrid(body, photos) {
       try {
         const fileId = p.fotoUrl.match(/[-\w]{25,}/)[0];
         const imgBlob = DriveApp.getFileById(fileId).getBlob();
-        cell.appendImage(imgBlob).setWidth(cellWidth - 20);
+        const img = cell.appendImage(imgBlob);
+        const naturalWidth = img.getWidth();
+        const naturalHeight = img.getHeight();
+        const targetWidth = cellWidth - 20;
+        const targetHeight = naturalHeight * (targetWidth / naturalWidth);
+        img.setWidth(targetWidth);
+        img.setHeight(targetHeight);
       } catch (e) { /* skip jika gagal ambil gambar */ }
     });
   }
