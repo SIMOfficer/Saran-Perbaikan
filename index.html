@@ -175,19 +175,22 @@ function readDropdownWithOther(selectEl){
   return selectEl.value === 'Others' ? selectEl.nextElementSibling.value : selectEl.value;
 }
 function checklistRow(key, label){
+  const hargaCell = key === 'ban' ? '<td></td>' : `<td><input id="chk-harga-${key}" type="text" inputmode="numeric" oninput="formatRibuan(this)" style="display:none"></td>`;
   return `
   <tr>
     <td>${label}</td>
     <td><select id="chk-status-${key}" onchange="toggleHarga('${key}')"><option value="OK">OK</option><option value="NOK">NOK</option></select></td>
     <td><input id="chk-ket-${key}"></td>
-    <td><input id="chk-harga-${key}" type="text" inputmode="numeric" oninput="formatRibuan(this)" style="display:none"></td>
+    ${hargaCell}
   </tr>`;
 }
 function toggleHarga(key){
   const status = document.getElementById('chk-status-'+key).value;
   const hargaEl = document.getElementById('chk-harga-'+key);
-  hargaEl.style.display = status === 'NOK' ? '' : 'none';
-  if(status !== 'NOK') hargaEl.value = '';
+  if(hargaEl){
+    hargaEl.style.display = status === 'NOK' ? '' : 'none';
+    if(status !== 'NOK') hargaEl.value = '';
+  }
   if(key === 'ban'){
     const extra = document.getElementById('ban-merk-extra');
     extra.style.display = status === 'NOK' ? '' : 'none';
@@ -197,10 +200,11 @@ function toggleHarga(key){
   }
 }
 function readChecklist(key){
+  const hargaEl = document.getElementById('chk-harga-'+key);
   return {
     status: document.getElementById('chk-status-'+key).value,
     keterangan: document.getElementById('chk-ket-'+key).value,
-    harga: parseRibuan(document.getElementById('chk-harga-'+key).value)
+    harga: hargaEl ? parseRibuan(hargaEl.value) : 0
   };
 }
 function toggleHybrid(){
@@ -359,7 +363,8 @@ function fillProsesServiceFromKunjungan(kj){
     const prefix = key === 'kampasRem' ? 'KampasRem' : key.charAt(0).toUpperCase()+key.slice(1);
     document.getElementById('chk-status-'+key).value = kj[prefix+'_Status'] || 'OK';
     document.getElementById('chk-ket-'+key).value = kj[prefix+'_Keterangan'] || '';
-    document.getElementById('chk-harga-'+key).value = toRibuan(kj[prefix+'_Harga']);
+    const hargaEl = document.getElementById('chk-harga-'+key);
+    if(hargaEl) hargaEl.value = toRibuan(kj[prefix+'_Harga']);
   });
   document.getElementById('ban-merk1').value = kj.Ban_Merk1 || '';
   document.getElementById('ban-harga1').value = toRibuan(kj.Ban_Harga1);
