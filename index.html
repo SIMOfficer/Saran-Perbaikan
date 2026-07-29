@@ -388,6 +388,7 @@ async function renderInputTeknisi(app){
             <th>Qty</th>
             <th>Harga Satuan</th>
             <th>Keterangan</th>
+            <th>Ketersediaan</th>
             <th>Foto</th>
             <th></th>
           </tr>
@@ -505,6 +506,11 @@ function addItemBlock(){
     <td><input class="f-qty" type="number" min="1" value="1" oninput="updateTotalParts()"></td>
     <td><input class="f-harga" type="number" min="0" oninput="updateTotalParts()"></td>
     <td><input class="f-ket" placeholder="cth: aus, bocor, patah dudukan..."></td>
+    <td><select class="f-ketersediaan">
+          <option value="Ready">Ready</option>
+          <option value="Indent">Indent</option>
+          <option value="Tidak Tersedia (perlu order)">Tidak Tersedia (perlu order)</option>
+        </select></td>
     <td><input class="f-foto" type="file" accept="image/*"></td>
     <td><button type="button" class="row-remove" onclick="this.closest('tr').remove(); updateTotalParts()" title="Hapus baris">&times;</button></td>
   `;
@@ -539,7 +545,7 @@ async function submitKunjungan(){
       const namaKomponen = b.querySelector('.f-nama').value;
       const qty = b.querySelector('.f-qty').value;
       if(!namaKomponen || !qty) continue;
-      const item = { namaKomponen, qty, hargaSatuan: b.querySelector('.f-harga').value, keterangan: b.querySelector('.f-ket').value };
+      const item = { namaKomponen, qty, hargaSatuan: b.querySelector('.f-harga').value, keterangan: b.querySelector('.f-ket').value, ketersediaanPart: b.querySelector('.f-ketersediaan').value };
       const file = b.querySelector('.f-foto').files[0];
       if(file){
         if(btn) btn.textContent = 'Mengupload foto...';
@@ -602,8 +608,8 @@ async function submitKunjungan(){
     const tanggalService = document.getElementById('tanggalService').value;
     const sa = document.getElementById('sa').value;
     const teknisi = document.getElementById('teknisi').value;
-    if(!document.getElementById('noPolisi').value || !tipeMobil || !tipeService || !tanggalService || !sa || !teknisi || !items.length){
-      alert('No. Polisi, Tipe Mobil, Tipe Service, Tanggal Service, Service Advisor, Teknisi, dan minimal 1 komponen (nama + qty) wajib diisi'); return;
+    if(!document.getElementById('noPolisi').value || !tipeMobil || !tipeService || !tanggalService || !sa || !teknisi){
+      alert('No. Polisi, Tipe Mobil, Tipe Service, Tanggal Service, Service Advisor, dan Teknisi wajib diisi'); return;
     }
     const proses = {
       pekerjaan: document.getElementById('pekerjaan').value,
@@ -691,8 +697,8 @@ async function openForemanEdit(id){
     <div style="overflow-x:auto;">
       <table class="items-table">
         <thead><tr>
-          <th>Nama Parts</th><th>Qty</th><th>Harga Satuan (Teknisi)</th><th>Ket. Teknisi</th>
-          <th>Nomor Part</th><th>Estimasi Harga</th><th>Ketersediaan</th><th>Ket. Foreman</th><th></th>
+          <th>Nama Parts</th><th>Qty</th><th>Harga Satuan</th><th>Keterangan</th>
+          <th>Ketersediaan</th><th>Foto</th><th></th>
         </tr></thead>
         <tbody id="foremanPartsWrap"></tbody>
       </table>
@@ -815,14 +821,15 @@ function addForemanPartRow(it){
     <td><input class="fp-qty" type="number" min="1" value="${it.Qty||1}"></td>
     <td><input class="fp-hargasatuan" type="number" min="0" value="${it.Harga_Satuan_Teknisi||''}"></td>
     <td><input class="fp-ket-teknisi" value="${escapeHtml(it.Keterangan_Teknisi||'')}"></td>
-    <td><input class="fp-nomorpart" value="${escapeHtml(it.Nomor_Part||'')}"></td>
-    <td><input class="fp-estimasi" type="number" min="0" value="${it.Estimasi_Harga||''}"></td>
     <td><select class="fp-ketersediaan">
-          <option ${it.Ketersediaan_Part==='Ready'?'selected':''}>Ready</option>
-          <option ${it.Ketersediaan_Part==='Indent'?'selected':''}>Indent</option>
-          <option ${it.Ketersediaan_Part==='Tidak Tersedia (perlu order)'?'selected':''}>Tidak Tersedia (perlu order)</option>
+          <option value="Ready" ${it.Ketersediaan_Part==='Ready'?'selected':''}>Ready</option>
+          <option value="Indent" ${it.Ketersediaan_Part==='Indent'?'selected':''}>Indent</option>
+          <option value="Tidak Tersedia (perlu order)" ${it.Ketersediaan_Part==='Tidak Tersedia (perlu order)'?'selected':''}>Tidak Tersedia (perlu order)</option>
         </select></td>
-    <td><input class="fp-ket-foreman" value="${escapeHtml(it.Keterangan_Partman||'')}"></td>
+    <td>
+      <input class="fp-foto" type="file" accept="image/*">
+      ${it.Foto_URL ? `<div class="note"><a href="${it.Foto_URL}" target="_blank">lihat foto</a></div>` : ''}
+    </td>
     <td>
       <button type="button" class="secondary" onclick="saveForemanPartRow(this)">Simpan</button>
       <button type="button" class="row-remove" onclick="deleteForemanPartRow(this)" title="Hapus">&times;</button>
@@ -837,24 +844,27 @@ async function saveForemanPartRow(btn){
   const qty = tr.querySelector('.fp-qty').value;
   const hargaSatuan = tr.querySelector('.fp-hargasatuan').value;
   const keterangan = tr.querySelector('.fp-ket-teknisi').value;
-  const nomorPart = tr.querySelector('.fp-nomorpart').value;
-  const estimasiHarga = tr.querySelector('.fp-estimasi').value;
   const ketersediaanPart = tr.querySelector('.fp-ketersediaan').value;
-  const keteranganPartman = tr.querySelector('.fp-ket-foreman').value;
+  let fotoUrl;
+  const file = tr.querySelector('.fp-foto').files[0];
+  if(file){
+    btn.textContent = 'Mengupload foto...';
+    const base64Data = await fileToBase64(file);
+    const uploadRes = await api('uploadFoto','POST',{ base64Data, mimeType: file.type, fileName: file.name });
+    if(uploadRes && uploadRes.url) fotoUrl = uploadRes.url;
+    else if(uploadRes && uploadRes.error) alert('Gagal upload foto: '+uploadRes.error);
+  }
   let res;
   if(!id){
-    res = await api('addItemSaran','POST',{ idKunjungan: currentDetailId, namaKomponen, qty, hargaSatuan, keterangan });
-    if(res.success){
-      tr.dataset.id = res.idItem;
-      res = await api('updateRow','POST',{ sheet:'Item_Saran', id: res.idItem, fields:{
-        Nomor_Part: nomorPart, Estimasi_Harga: estimasiHarga, Ketersediaan_Part: ketersediaanPart, Keterangan_Partman: keteranganPartman
-      }});
-    }
+    res = await api('addItemSaran','POST',{ idKunjungan: currentDetailId, namaKomponen, qty, hargaSatuan, keterangan, ketersediaanPart, fotoUrl });
+    if(res.success) tr.dataset.id = res.idItem;
   } else {
-    res = await api('updateRow','POST',{ sheet:'Item_Saran', id, fields:{
+    const fields = {
       Nama_Komponen: namaKomponen, Qty: qty, Harga_Satuan_Teknisi: hargaSatuan, Keterangan_Teknisi: keterangan,
-      Nomor_Part: nomorPart, Estimasi_Harga: estimasiHarga, Ketersediaan_Part: ketersediaanPart, Keterangan_Partman: keteranganPartman
-    }});
+      Ketersediaan_Part: ketersediaanPart
+    };
+    if(fotoUrl) fields.Foto_URL = fotoUrl;
+    res = await api('updateRow','POST',{ sheet:'Item_Saran', id, fields });
   }
   btn.textContent = res.success ? 'Tersimpan ✓' : 'Gagal';
 }

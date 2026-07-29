@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v18-report-row-splice-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v19-report-format-ketersediaan'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -285,7 +285,7 @@ function addItemSaran(body) {
   const sh = getSheet('Item_Saran');
   const id = 'IT-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000);
   sh.appendRow([id, body.idKunjungan, body.namaKomponen, body.qty, body.keterangan || '',
-    '', '', '', '', body.fotoUrl || '', new Date(), '', body.hargaSatuan || '']);
+    '', '', body.ketersediaanPart || '', '', body.fotoUrl || '', new Date(), '', body.hargaSatuan || '']);
   return { success: true, idItem: id };
 }
 
@@ -464,7 +464,8 @@ function insertRowsIntoExistingTable(table, placeholder, dataRows) {
   dataRows.forEach((rowValues, i) => {
     const newRow = table.insertTableRow(rowIndex + i);
     for (let c = 0; c < numCols; c++) {
-      newRow.appendTableCell(rowValues[c] !== undefined ? String(rowValues[c]) : '');
+      const cell = newRow.appendTableCell(rowValues[c] !== undefined ? String(rowValues[c]) : '');
+      cell.getChild(0).asParagraph().setAlignment(DocumentApp.HorizontalAlignment.CENTER);
     }
   });
   table.removeRow(rowIndex + dataRows.length); // baris placeholder asli, sudah bergeser ke bawah
@@ -473,7 +474,7 @@ function insertRowsIntoExistingTable(table, placeholder, dataRows) {
 
 function formatRupiahOrDash(v) {
   const n = Number(v) || 0;
-  return n ? n.toLocaleString('id-ID') : '-';
+  return n ? 'Rp ' + n.toLocaleString('id-ID') : '-';
 }
 
 /** Lampirkan 1 foto (dari URL Drive share-link) di akhir dokumen dengan judul. */
