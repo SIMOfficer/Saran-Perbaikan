@@ -34,6 +34,7 @@
   .items-table td,.items-table th{vertical-align:middle;}
   .items-table td input{margin:0;}
   .items-table td:nth-child(2) input{width:70px;}
+  #ban-merk-extra input{width:100%;}
   .row-remove{background:none;border:none;color:var(--primary);font-size:18px;line-height:1;cursor:pointer;padding:4px 8px;margin:0;}
   .kpi{display:flex;gap:16px;flex-wrap:wrap;}
   .kpi .box{flex:1;min-width:150px;background:#fff;border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.08);}
@@ -126,6 +127,18 @@ async function loadMasterData(){
 function normalizeNoPolisi(el){
   el.value = el.value.toUpperCase().split(' ').join('');
 }
+function formatRibuan(el){
+  const digits = el.value.replace(/\D/g,'');
+  el.value = digits ? Number(digits).toLocaleString('id-ID') : '';
+}
+function toRibuan(n){
+  n = Number(n) || 0;
+  return n ? n.toLocaleString('id-ID') : '';
+}
+function parseRibuan(str){
+  const digits = (str||'').toString().replace(/\D/g,'');
+  return digits ? Number(digits) : 0;
+}
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -167,7 +180,7 @@ function checklistRow(key, label){
     <td>${label}</td>
     <td><select id="chk-status-${key}" onchange="toggleHarga('${key}')"><option value="OK">OK</option><option value="NOK">NOK</option></select></td>
     <td><input id="chk-ket-${key}"></td>
-    <td><input id="chk-harga-${key}" type="number" min="0" style="display:none"></td>
+    <td><input id="chk-harga-${key}" type="text" inputmode="numeric" oninput="formatRibuan(this)" style="display:none"></td>
   </tr>`;
 }
 function toggleHarga(key){
@@ -187,7 +200,7 @@ function readChecklist(key){
   return {
     status: document.getElementById('chk-status-'+key).value,
     keterangan: document.getElementById('chk-ket-'+key).value,
-    harga: document.getElementById('chk-harga-'+key).value
+    harga: parseRibuan(document.getElementById('chk-harga-'+key).value)
   };
 }
 function toggleHybrid(){
@@ -253,11 +266,11 @@ function prosesServiceCardHtml(){
             <td colspan="3">
               <div class="row">
                 <div><label>Merk 1</label><input id="ban-merk1"></div>
-                <div><label>Harga 1</label><input id="ban-harga1" type="number" min="0"></div>
+                <div><label>Harga 1</label><input id="ban-harga1" type="text" inputmode="numeric" oninput="formatRibuan(this)"></div>
               </div>
               <div class="row">
                 <div><label>Merk 2</label><input id="ban-merk2"></div>
-                <div><label>Harga 2</label><input id="ban-harga2" type="number" min="0"></div>
+                <div><label>Harga 2</label><input id="ban-harga2" type="text" inputmode="numeric" oninput="formatRibuan(this)"></div>
               </div>
             </td>
           </tr>
@@ -346,12 +359,12 @@ function fillProsesServiceFromKunjungan(kj){
     const prefix = key === 'kampasRem' ? 'KampasRem' : key.charAt(0).toUpperCase()+key.slice(1);
     document.getElementById('chk-status-'+key).value = kj[prefix+'_Status'] || 'OK';
     document.getElementById('chk-ket-'+key).value = kj[prefix+'_Keterangan'] || '';
-    document.getElementById('chk-harga-'+key).value = kj[prefix+'_Harga'] || '';
+    document.getElementById('chk-harga-'+key).value = toRibuan(kj[prefix+'_Harga']);
   });
   document.getElementById('ban-merk1').value = kj.Ban_Merk1 || '';
-  document.getElementById('ban-harga1').value = kj.Ban_Harga1 || '';
+  document.getElementById('ban-harga1').value = toRibuan(kj.Ban_Harga1);
   document.getElementById('ban-merk2').value = kj.Ban_Merk2 || '';
-  document.getElementById('ban-harga2').value = kj.Ban_Harga2 || '';
+  document.getElementById('ban-harga2').value = toRibuan(kj.Ban_Harga2);
   ['aki','ban','kampasRem','wiper','lampu'].forEach(key=>toggleHarga(key));
 }
 async function renderInputTeknisi(app){
@@ -483,7 +496,7 @@ function addJasaRow(){
   tr.innerHTML = `
     <td><input class="j-nama"></td>
     <td><input class="j-waktu" placeholder="cth: 30 menit"></td>
-    <td><input class="j-harga" type="number" min="0" oninput="updateTotalJasa()"></td>
+    <td><input class="j-harga" type="text" inputmode="numeric" oninput="formatRibuan(this); updateTotalJasa()"></td>
     <td><input class="j-ket"></td>
     <td><button type="button" class="row-remove" onclick="this.closest('tr').remove(); updateTotalJasa()" title="Hapus baris">&times;</button></td>
   `;
@@ -492,7 +505,7 @@ function addJasaRow(){
 function updateTotalJasa(){
   const rows = [...document.querySelectorAll('#jasaWrap tr')];
   let total = 0;
-  rows.forEach(r => { total += Number(r.querySelector('.j-harga').value) || 0; });
+  rows.forEach(r => { total += parseRibuan(r.querySelector('.j-harga').value); });
   document.getElementById('totalJasa').textContent = 'Rp ' + total.toLocaleString('id-ID');
 }
 function addItemBlock(){
@@ -504,7 +517,7 @@ function addItemBlock(){
   tr.innerHTML = `
     <td><input class="f-nama"></td>
     <td><input class="f-qty" type="number" min="1" value="1" oninput="updateTotalParts()"></td>
-    <td><input class="f-harga" type="number" min="0" oninput="updateTotalParts()"></td>
+    <td><input class="f-harga" type="text" inputmode="numeric" oninput="formatRibuan(this); updateTotalParts()"></td>
     <td><input class="f-ket" placeholder="cth: aus, bocor, patah dudukan..."></td>
     <td><select class="f-ketersediaan">
           <option value="Ready">Ready</option>
@@ -521,7 +534,7 @@ function updateTotalParts(){
   let total = 0;
   rows.forEach(r => {
     const qty = Number(r.querySelector('.f-qty').value) || 0;
-    const harga = Number(r.querySelector('.f-harga').value) || 0;
+    const harga = parseRibuan(r.querySelector('.f-harga').value);
     total += qty * harga;
   });
   document.getElementById('totalParts').textContent = 'Rp ' + total.toLocaleString('id-ID');
@@ -545,7 +558,7 @@ async function submitKunjungan(){
       const namaKomponen = b.querySelector('.f-nama').value;
       const qty = b.querySelector('.f-qty').value;
       if(!namaKomponen || !qty) continue;
-      const item = { namaKomponen, qty, hargaSatuan: b.querySelector('.f-harga').value, keterangan: b.querySelector('.f-ket').value, ketersediaanPart: b.querySelector('.f-ketersediaan').value };
+      const item = { namaKomponen, qty, hargaSatuan: parseRibuan(b.querySelector('.f-harga').value), keterangan: b.querySelector('.f-ket').value, ketersediaanPart: b.querySelector('.f-ketersediaan').value };
       const file = b.querySelector('.f-foto').files[0];
       if(file){
         if(btn) btn.textContent = 'Mengupload foto...';
@@ -565,7 +578,7 @@ async function submitKunjungan(){
       itemsJasa.push({
         namaJasa,
         waktu: b.querySelector('.j-waktu').value,
-        hargaSatuan: b.querySelector('.j-harga').value,
+        hargaSatuan: parseRibuan(b.querySelector('.j-harga').value),
         keterangan: b.querySelector('.j-ket').value
       });
     }
@@ -616,8 +629,8 @@ async function submitKunjungan(){
       requestCustomer: document.getElementById('requestCustomer').value,
       aki: readChecklist('aki'),
       ban: { ...readChecklist('ban'),
-        merk1: document.getElementById('ban-merk1').value, harga1: document.getElementById('ban-harga1').value,
-        merk2: document.getElementById('ban-merk2').value, harga2: document.getElementById('ban-harga2').value },
+        merk1: document.getElementById('ban-merk1').value, harga1: parseRibuan(document.getElementById('ban-harga1').value),
+        merk2: document.getElementById('ban-merk2').value, harga2: parseRibuan(document.getElementById('ban-harga2').value) },
       kampasRem: readChecklist('kampasRem'),
       wiper: readChecklist('wiper'),
       lampu: readChecklist('lampu')
@@ -776,7 +789,7 @@ function addForemanJasaRow(it){
   tr.innerHTML = `
     <td><input class="fj-nama" value="${escapeHtml(it.Nama_Jasa||'')}"></td>
     <td><input class="fj-waktu" value="${escapeHtml(it.Waktu||'')}"></td>
-    <td><input class="fj-harga" type="number" min="0" value="${it.Harga_Satuan||''}"></td>
+    <td><input class="fj-harga" type="text" inputmode="numeric" oninput="formatRibuan(this)" value="${toRibuan(it.Harga_Satuan)}"></td>
     <td><input class="fj-ket" value="${escapeHtml(it.Keterangan||'')}"></td>
     <td>
       <button type="button" class="secondary" onclick="saveForemanJasaRow(this)">Simpan</button>
@@ -790,7 +803,7 @@ async function saveForemanJasaRow(btn){
   const id = tr.dataset.id;
   const namaJasa = tr.querySelector('.fj-nama').value;
   const waktu = tr.querySelector('.fj-waktu').value;
-  const hargaSatuan = tr.querySelector('.fj-harga').value;
+  const hargaSatuan = parseRibuan(tr.querySelector('.fj-harga').value);
   const keterangan = tr.querySelector('.fj-ket').value;
   let res;
   if(!id){
@@ -819,7 +832,7 @@ function addForemanPartRow(it){
   tr.innerHTML = `
     <td><input class="fp-nama" value="${escapeHtml(it.Nama_Komponen||'')}"></td>
     <td><input class="fp-qty" type="number" min="1" value="${it.Qty||1}"></td>
-    <td><input class="fp-hargasatuan" type="number" min="0" value="${it.Harga_Satuan_Teknisi||''}"></td>
+    <td><input class="fp-hargasatuan" type="text" inputmode="numeric" oninput="formatRibuan(this)" value="${toRibuan(it.Harga_Satuan_Teknisi)}"></td>
     <td><input class="fp-ket-teknisi" value="${escapeHtml(it.Keterangan_Teknisi||'')}"></td>
     <td><select class="fp-ketersediaan">
           <option value="Ready" ${it.Ketersediaan_Part==='Ready'?'selected':''}>Ready</option>
@@ -842,7 +855,7 @@ async function saveForemanPartRow(btn){
   const id = tr.dataset.id;
   const namaKomponen = tr.querySelector('.fp-nama').value;
   const qty = tr.querySelector('.fp-qty').value;
-  const hargaSatuan = tr.querySelector('.fp-hargasatuan').value;
+  const hargaSatuan = parseRibuan(tr.querySelector('.fp-hargasatuan').value);
   const keterangan = tr.querySelector('.fp-ket-teknisi').value;
   const ketersediaanPart = tr.querySelector('.fp-ketersediaan').value;
   let fotoUrl;
@@ -987,22 +1000,22 @@ async function collectAndSaveForemanChanges(){
     Request_Customer: document.getElementById('requestCustomer').value,
     Aki_Status: document.getElementById('chk-status-aki').value,
     Aki_Keterangan: document.getElementById('chk-ket-aki').value,
-    Aki_Harga: document.getElementById('chk-harga-aki').value,
+    Aki_Harga: parseRibuan(document.getElementById('chk-harga-aki').value),
     Ban_Status: document.getElementById('chk-status-ban').value,
     Ban_Keterangan: document.getElementById('chk-ket-ban').value,
     Ban_Merk1: document.getElementById('ban-merk1').value,
-    Ban_Harga1: document.getElementById('ban-harga1').value,
+    Ban_Harga1: parseRibuan(document.getElementById('ban-harga1').value),
     Ban_Merk2: document.getElementById('ban-merk2').value,
-    Ban_Harga2: document.getElementById('ban-harga2').value,
+    Ban_Harga2: parseRibuan(document.getElementById('ban-harga2').value),
     KampasRem_Status: document.getElementById('chk-status-kampasRem').value,
     KampasRem_Keterangan: document.getElementById('chk-ket-kampasRem').value,
-    KampasRem_Harga: document.getElementById('chk-harga-kampasRem').value,
+    KampasRem_Harga: parseRibuan(document.getElementById('chk-harga-kampasRem').value),
     Wiper_Status: document.getElementById('chk-status-wiper').value,
     Wiper_Keterangan: document.getElementById('chk-ket-wiper').value,
-    Wiper_Harga: document.getElementById('chk-harga-wiper').value,
+    Wiper_Harga: parseRibuan(document.getElementById('chk-harga-wiper').value),
     Lampu_Status: document.getElementById('chk-status-lampu').value,
     Lampu_Keterangan: document.getElementById('chk-ket-lampu').value,
-    Lampu_Harga: document.getElementById('chk-harga-lampu').value,
+    Lampu_Harga: parseRibuan(document.getElementById('chk-harga-lampu').value),
     Mobil_Hybrid: document.getElementById('mobilHybrid').value,
     SBE_50K_100K: document.getElementById('sbe50k100k').value,
     Mobil_2_5_Tahun: document.getElementById('mobil2to5Tahun').value,
