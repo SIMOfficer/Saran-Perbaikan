@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v14-foreman-kirim-sa'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v18-report-row-splice-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -412,24 +412,62 @@ function rowToObj(header, row) {
   return obj;
 }
 
-/** Sisipkan tabel tepat sebelum paragraf yang mengandung `placeholder`
- *  (mis. "{{TABEL_ITEM}}"), bukan selalu di akhir dokumen. Teks paragraf
- *  placeholder dikosongkan (bukan dihapus elemennya) dan disisakan sebagai
- *  baris kosong setelah tabel - Google Docs tidak mengizinkan sebuah body
- *  section diakhiri oleh tabel, jadi paragraf itu wajib tetap ada kalau
- *  placeholder-nya berada di baris terakhir dokumen. Jika placeholder tidak
- *  ditemukan, tabel ditambahkan di akhir dokumen sebagai fallback. */
-function insertTableAtPlaceholder(body, placeholder, tableData) {
+/** Sisipkan baris data tepat di posisi `placeholder` (mis. "{{TABEL_ITEM}}").
+ *  `rowsWithHeader[0]` adalah header, sisanya baris data. Ada 2 kasus:
+ *  1. Placeholder ada di dalam sel tabel yang sudah digambar di template
+ *     (header, baris kosong berisi placeholder, mungkin ada baris Total di
+ *     bawahnya) - baris data disisipkan LANGSUNG ke tabel itu di posisi
+ *     baris placeholder, lalu baris placeholder aslinya dibuang. Header dan
+ *     baris-baris lain (mis. baris Total) tetap utuh, dan lebar kolom
+ *     mengikuti desain asli template - tidak perlu diatur manual.
+ *  2. Placeholder ada di paragraf biasa (bukan di dalam tabel) - tabel baru
+ *     (lengkap dengan header) disisipkan di situ, paragrafnya dikosongkan
+ *     (bukan dihapus - Google Docs tidak mengizinkan body section diakhiri
+ *     tabel).
+ *  Jika placeholder tidak ditemukan sama sekali, tabel baru ditambahkan di
+ *  akhir dokumen sebagai fallback. */
+function insertTableAtPlaceholder(body, placeholder, rowsWithHeader) {
   const found = body.findText(placeholder);
-  if (!found) return body.appendTable(tableData);
+  if (!found) return body.appendTable(rowsWithHeader);
 
   let el = found.getElement();
   while (el.getParent() && el.getParent().getType() !== DocumentApp.ElementType.BODY_SECTION) {
     el = el.getParent();
   }
+
+  if (el.getType() === DocumentApp.ElementType.TABLE) {
+    return insertRowsIntoExistingTable(el, placeholder, rowsWithHeader.slice(1));
+  }
+
   const index = body.getChildIndex(el);
-  const table = body.insertTable(index, tableData);
+  const table = body.insertTable(index, rowsWithHeader);
   el.editAsText().setText('');
+  return table;
+}
+
+/** Cari row di `table` yang mengandung `placeholder`, ganti dengan `dataRows`
+ *  (tanpa header - tabel lama sudah punya headernya sendiri), dengan jumlah
+ *  kolom mengikuti row placeholder aslinya (bukan jumlah kolom dataRows). */
+function insertRowsIntoExistingTable(table, placeholder, dataRows) {
+  let rowIndex = -1;
+  for (let r = 0; r < table.getNumRows(); r++) {
+    if (table.getRow(r).findText(placeholder)) { rowIndex = r; break; }
+  }
+  if (rowIndex === -1) rowIndex = table.getNumRows() - 1;
+  const numCols = table.getRow(rowIndex).getNumCells();
+
+  if (!dataRows.length) {
+    for (let c = 0; c < numCols; c++) table.getRow(rowIndex).getCell(c).setText('');
+    return table;
+  }
+
+  dataRows.forEach((rowValues, i) => {
+    const newRow = table.insertTableRow(rowIndex + i);
+    for (let c = 0; c < numCols; c++) {
+      newRow.appendTableCell(rowValues[c] !== undefined ? String(rowValues[c]) : '');
+    }
+  });
+  table.removeRow(rowIndex + dataRows.length); // baris placeholder asli, sudah bergeser ke bawah
   return table;
 }
 
@@ -499,24 +537,24 @@ function generateReport(idKunjungan, namaForeman) {
 
   // Saran Perbaikan - Nama Jasa
   let totalJasa = 0;
-  const tableJasa = [['No', 'Nama Jasa', 'Waktu', 'Harga Satuan', 'Keterangan']];
-  itemsJasa.forEach((it, i) => {
+  const tableJasa = [['Nama Jasa', 'Waktu', 'Harga Satuan', 'Keterangan']];
+  itemsJasa.forEach(it => {
     const harga = Number(it.Harga_Satuan) || 0;
     totalJasa += harga;
-    tableJasa.push([i + 1, it.Nama_Jasa, it.Waktu || '-', formatRupiahOrDash(harga), it.Keterangan || '-']);
+    tableJasa.push([it.Nama_Jasa, it.Waktu || '-', formatRupiahOrDash(harga), it.Keterangan || '-']);
   });
   insertTableAtPlaceholder(body, '{{TABEL_JASA}}', tableJasa);
   body.replaceText('{{TOTAL_JASA}}', 'Rp ' + totalJasa.toLocaleString('id-ID'));
 
   // Saran Perbaikan - Nama Parts (harga pakai Estimasi_Harga Foreman, fallback ke estimasi Teknisi)
   let totalParts = 0;
-  const tableParts = [['No', 'Nama Parts', 'Qty', 'Harga Satuan', 'Total', 'Keterangan']];
-  items.forEach((it, i) => {
+  const tableParts = [['Nama Parts', 'Qty', 'Harga Satuan', 'Total', 'Keterangan']];
+  items.forEach(it => {
     const qty = Number(it.Qty) || 1;
     const harga = Number(it.Estimasi_Harga) || Number(it.Harga_Satuan_Teknisi) || 0;
     const rowTotal = harga * qty;
     totalParts += rowTotal;
-    tableParts.push([i + 1, it.Nama_Komponen, qty, formatRupiahOrDash(harga),
+    tableParts.push([it.Nama_Komponen, qty, formatRupiahOrDash(harga),
       formatRupiahOrDash(rowTotal), it.Keterangan_Partman || it.Keterangan_Teknisi || '-']);
   });
   insertTableAtPlaceholder(body, '{{TABEL_PARTS}}', tableParts);
@@ -531,13 +569,13 @@ function generateReport(idKunjungan, namaForeman) {
   body.replaceText('{{HASIL_HHC}}', kj.HHC_Hasil || '-');
 
   // Special Service Campaign
-  const tableSSC = [['No', 'Jenis SSC', 'Status', 'Alasan']];
-  itemsSSC.forEach((it, i) => tableSSC.push([i + 1, it.SSC, it.Status || '-', it.Alasan || '-']));
+  const tableSSC = [['Jenis SSC', 'Status', 'Alasan']];
+  itemsSSC.forEach(it => tableSSC.push([it.SSC, it.Status || '-', it.Alasan || '-']));
   insertTableAtPlaceholder(body, '{{TABEL_SSC}}', tableSSC);
 
   // Technical Information
-  const tableTI = [['No', 'Technical Information', 'Status', 'Alasan']];
-  itemsTI.forEach((it, i) => tableTI.push([i + 1, it.Technical_Information, it.Status || '-', it.Alasan || '-']));
+  const tableTI = [['Technical Information', 'Status', 'Alasan']];
+  itemsTI.forEach(it => tableTI.push([it.Technical_Information, it.Status || '-', it.Alasan || '-']));
   insertTableAtPlaceholder(body, '{{TABEL_TI}}', tableTI);
 
   // Uji Emisi
