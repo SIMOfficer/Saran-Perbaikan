@@ -74,6 +74,13 @@
   nav button.active{color:var(--primary-700);border-color:var(--primary-600);font-weight:600;}
   main{padding:24px;max-width:1100px;margin:0 auto;}
   .card{background:var(--surface-card);border-radius:var(--radius-xl);padding:20px;margin-bottom:16px;box-shadow:var(--ring-card),var(--shadow-sm);}
+  .card.accordion{padding:0;}
+  .accordion-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 20px;cursor:pointer;user-select:none;}
+  .accordion-head h3{margin:0;}
+  .accordion-chevron{color:var(--primary-600);font-size:11px;transition:transform .15s;flex-shrink:0;}
+  .card.accordion[data-open="false"] .accordion-chevron{transform:rotate(-90deg);}
+  .accordion-body{padding:0 20px 20px;}
+  .card.accordion[data-open="false"] .accordion-body{display:none;}
   h3{color:var(--text-heading);font-size:16px;letter-spacing:-.01em;}
   h4{color:var(--text-heading);font-size:14px;}
   label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px;color:var(--text-body);}
@@ -226,6 +233,10 @@ async function loadMasterData(){
 function normalizeNoPolisi(el){
   el.value = el.value.toUpperCase().split(' ').join('');
 }
+function toggleAccordion(headEl){
+  const card = headEl.closest('.accordion');
+  card.dataset.open = card.dataset.open === 'false' ? 'true' : 'false';
+}
 function formatRibuan(el){
   const digits = el.value.replace(/\D/g,'');
   el.value = digits ? Number(digits).toLocaleString('id-ID') : '';
@@ -328,8 +339,9 @@ function toggleHHC(){
 }
 function dataUnitCardHtml(md, today){
   return `
-  <div class="card">
-    <h3>Data Unit / Customer</h3>
+  <div class="card accordion" data-open="true">
+    <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Data Unit / Customer</h3><span class="accordion-chevron">&#9662;</span></div>
+    <div class="accordion-body">
     <div class="row">
       <div><label class="req">No. Polisi</label><input id="noPolisi" placeholder="D 1234 ABC" oninput="normalizeNoPolisi(this)"></div>
       <div><label class="req">Nama Customer</label><input id="namaCustomer"></div>
@@ -344,12 +356,14 @@ function dataUnitCardHtml(md, today){
       <div><label class="req">Service Advisor</label><select id="sa">${optionList(md.Service_Advisor)}</select></div>
       <div><label class="req">Teknisi</label><select id="teknisi">${optionList(md.Teknisi)}</select></div>
     </div>
+    </div>
   </div>`;
 }
 function prosesServiceCardHtml(){
   return `
-  <div class="card">
-    <h3>Proses Service</h3>
+  <div class="card accordion" data-open="false">
+    <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Proses Service</h3><span class="accordion-chevron">&#9662;</span></div>
+    <div class="accordion-body">
     <label>Pekerjaan</label>
     <textarea id="pekerjaan" rows="3"></textarea>
     <label>Request Customer</label>
@@ -385,12 +399,14 @@ function prosesServiceCardHtml(){
         </tbody>
       </table>
     </div>
+    </div>
   </div>`;
 }
 function hybridHealthCheckCardHtml(){
   return `
-  <div class="card">
-    <h3>Hybrid Health Check</h3>
+  <div class="card accordion" data-open="false">
+    <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Hybrid Health Check</h3><span class="accordion-chevron">&#9662;</span></div>
+    <div class="accordion-body">
     <div class="row">
       <div><label>Mobil Hybrid</label>
         <select id="mobilHybrid" onchange="toggleHybrid()"><option value="No">No</option><option value="Yes">Yes</option></select>
@@ -418,6 +434,7 @@ function hybridHealthCheckCardHtml(){
         </div>
       </div>
     </div>
+    </div>
   </div>`;
 }
 function fillHybridHealthCheckFromKunjungan(kj){
@@ -430,8 +447,9 @@ function fillHybridHealthCheckFromKunjungan(kj){
 }
 function ujiEmisiCardHtml(){
   return `
-  <div class="card">
-    <h3>Uji Emisi</h3>
+  <div class="card accordion" data-open="false">
+    <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Uji Emisi</h3><span class="accordion-chevron">&#9662;</span></div>
+    <div class="accordion-body">
     <div class="row">
       <div><label>Status</label>
         <select id="ujiEmisiStatus"><option value="Tidak Aktif">Tidak Aktif</option><option value="Aktif">Aktif</option></select>
@@ -440,6 +458,7 @@ function ujiEmisiCardHtml(){
         <input id="ujiEmisiFoto" type="file" accept="image/*">
         <div id="ujiEmisiFotoExisting" class="note"></div>
       </div>
+    </div>
     </div>
   </div>`;
 }
@@ -481,8 +500,9 @@ async function renderInputTeknisi(app){
   ${dataUnitCardHtml(md, today)}
   ${prosesServiceCardHtml()}
 
-  <div class="card">
-    <h3>Saran Perbaikan</h3>
+  <div class="card accordion" data-open="false">
+    <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Saran Perbaikan</h3><span class="accordion-chevron">&#9662;</span></div>
+    <div class="accordion-body">
 
     <h4>Nama Jasa</h4>
     <div style="overflow-x:auto;">
@@ -515,12 +535,14 @@ async function renderInputTeknisi(app){
     </div>
     <p class="note">Total Estimasi Biaya Parts: <b id="totalParts">Rp 0</b></p>
     <button class="secondary" onclick="addItemBlock()">+ Tambah Komponen</button>
+    </div>
   </div>
 
   ${hybridHealthCheckCardHtml()}
 
-  <div class="card">
-    <h3>Special Service Campaign</h3>
+  <div class="card accordion" data-open="false">
+    <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Special Service Campaign</h3><span class="accordion-chevron">&#9662;</span></div>
+    <div class="accordion-body">
     <div class="row">
       <div><label>Terlibat</label>
         <select id="sscTerlibat" onchange="toggleSSC()"><option value="No">No</option><option value="Yes">Yes</option></select>
@@ -535,6 +557,7 @@ async function renderInputTeknisi(app){
         </table>
       </div>
       <button class="secondary" onclick="addSSCRow()">+ Tambah SSC</button>
+    </div>
     </div>
   </div>
 
@@ -786,8 +809,9 @@ async function openForemanEdit(id){
   ${prosesServiceCardHtml()}
   <button class="primary" onclick="saveForemanChanges()">Simpan Perubahan</button>
 
-  <div class="card" style="margin-top:16px;">
-    <h3>Saran Perbaikan</h3>
+  <div class="card accordion" data-open="false" style="margin-top:16px;">
+    <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Saran Perbaikan</h3><span class="accordion-chevron">&#9662;</span></div>
+    <div class="accordion-body">
 
     <h4>Nama Jasa</h4>
     <div style="overflow-x:auto;">
@@ -809,13 +833,15 @@ async function openForemanEdit(id){
       </table>
     </div>
     <button class="secondary" onclick="addForemanPartRow()">+ Tambah Parts</button>
+    </div>
   </div>
 
   ${hybridHealthCheckCardHtml()}
   <button class="primary" onclick="saveForemanChanges()">Simpan Perubahan</button>
 
-  <div class="card" style="margin-top:16px;">
-    <h3>Special Service Campaign</h3>
+  <div class="card accordion" data-open="false" style="margin-top:16px;">
+    <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Special Service Campaign</h3><span class="accordion-chevron">&#9662;</span></div>
+    <div class="accordion-body">
     <div class="row">
       <div><label>Terlibat</label>
         <select id="sscTerlibat" onchange="toggleSSC()"><option value="No">No</option><option value="Yes">Yes</option></select>
@@ -829,6 +855,7 @@ async function openForemanEdit(id){
         </table>
       </div>
       <button class="secondary" onclick="addForemanSSCRow()">+ Tambah SSC</button>
+    </div>
     </div>
   </div>
   <button class="primary" onclick="saveForemanChanges()">Simpan Perubahan</button>
