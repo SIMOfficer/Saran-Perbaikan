@@ -165,6 +165,12 @@
       <select id="saSwitch" style="display:none;width:auto;">
         <option value="">-- Pilih Nama SA --</option>
       </select>
+      <select id="teknisiSwitch" style="display:none;width:auto;">
+        <option value="">-- Pilih Nama Teknisi --</option>
+      </select>
+      <select id="foremanSwitch" style="display:none;width:auto;">
+        <option value="">-- Pilih Nama Foreman --</option>
+      </select>
     </div>
     <nav id="tabs"></nav>
   </aside>
@@ -187,6 +193,8 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyWb1fyKjQqjigkPWeCqYWG
 let currentRole = "teknisi";
 let currentDetailId = null;
 let currentSA = "";
+let currentTeknisi = "";
+let currentForeman = "";
 let currentView = null;
 
 const ICON_STROKE = 'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"';
@@ -201,12 +209,12 @@ const ICONS = {
 
 const TABS = {
   teknisi:   [["input","Input Saran Baru","plusCircle"],["riwayat","Riwayat Saya","clock"]],
-  foreman:   [["antrian","Antrian Perlu Dilengkapi","clipboardList"]],
+  foreman:   [["antrian","Antrian Perlu Dilengkapi","clipboardList"],["riwayatForeman","Riwayat","clock"]],
   sa:        [["konfirmasi","Perlu Dikonfirmasi","checkCircle"],["followup","Follow Up","clock"],["laporan","Kirim Report Customer","documentText"]],
   kabengkel: [["dashboard","Dashboard","buildingOffice"],["semua","Semua Kunjungan","clipboardList"]],
 };
 const VIEW_TITLES = {
-  input:"Input Saran Baru", riwayat:"Riwayat Saya", antrian:"Antrian Perlu Dilengkapi",
+  input:"Input Saran Baru", riwayat:"Riwayat Saya", antrian:"Antrian Perlu Dilengkapi", riwayatForeman:"Riwayat",
   konfirmasi:"Perlu Dikonfirmasi", followup:"Follow Up", laporan:"Kirim Report Customer",
   dashboard:"Dashboard", semua:"Semua Kunjungan"
 };
@@ -215,20 +223,44 @@ const ROLE_LABELS = { teknisi:"Teknisi", foreman:"Foreman", sa:"Service Advisor"
 document.getElementById('roleSwitch').addEventListener('change', e=>{
   currentRole = e.target.value;
   currentSA = "";
-  updateSaSwitch();
+  currentTeknisi = "";
+  currentForeman = "";
+  updateIdentitySwitches();
   renderTabs();
 });
 document.getElementById('saSwitch').addEventListener('change', e=>{
   currentSA = e.target.value;
   render(currentView || TABS[currentRole][0][0]);
 });
-async function updateSaSwitch(){
+document.getElementById('teknisiSwitch').addEventListener('change', e=>{
+  currentTeknisi = e.target.value;
+  render(currentView || TABS[currentRole][0][0]);
+});
+document.getElementById('foremanSwitch').addEventListener('change', e=>{
+  currentForeman = e.target.value;
+  render(currentView || TABS[currentRole][0][0]);
+});
+async function updateIdentitySwitches(){
   const saSwitch = document.getElementById('saSwitch');
-  if(currentRole !== 'sa'){ saSwitch.style.display = 'none'; return; }
-  saSwitch.style.display = '';
-  const md = await loadMasterData();
-  saSwitch.innerHTML = optionList(md.Service_Advisor);
-  saSwitch.value = currentSA;
+  const teknisiSwitch = document.getElementById('teknisiSwitch');
+  const foremanSwitch = document.getElementById('foremanSwitch');
+  saSwitch.style.display = currentRole === 'sa' ? '' : 'none';
+  teknisiSwitch.style.display = currentRole === 'teknisi' ? '' : 'none';
+  foremanSwitch.style.display = currentRole === 'foreman' ? '' : 'none';
+  if(currentRole === 'sa'){
+    const md = await loadMasterData();
+    saSwitch.innerHTML = optionList(md.Service_Advisor);
+    saSwitch.value = currentSA;
+  } else if(currentRole === 'teknisi'){
+    const md = await loadMasterData();
+    teknisiSwitch.innerHTML = optionList(md.Teknisi);
+    teknisiSwitch.value = currentTeknisi;
+  } else if(currentRole === 'foreman'){
+    const rows = await api('listKunjungan');
+    const names = rows.demo ? [] : [...new Set(rows.map(r=>r.Nama_Foreman).filter(Boolean))].sort();
+    foremanSwitch.innerHTML = optionList(names);
+    foremanSwitch.value = currentForeman;
+  }
 }
 
 function renderTabs(){
@@ -259,11 +291,16 @@ async function api(action, method='GET', body=null){
 function render(view){
   currentView = view;
   document.getElementById('pageTitle').textContent = VIEW_TITLES[view] || '';
-  document.getElementById('topbarContext').textContent = (currentRole==='sa' && currentSA) ? ('SA: '+currentSA) : ('Login sebagai: '+(ROLE_LABELS[currentRole]||''));
+  document.getElementById('topbarContext').textContent =
+    (currentRole==='sa' && currentSA) ? ('SA: '+currentSA) :
+    (currentRole==='teknisi' && currentTeknisi) ? ('Teknisi: '+currentTeknisi) :
+    (currentRole==='foreman' && currentForeman) ? ('Foreman: '+currentForeman) :
+    ('Login sebagai: '+(ROLE_LABELS[currentRole]||''));
   const app = document.getElementById('app');
   if(view==='input') return renderInputTeknisi(app);
   if(view==='riwayat') return renderRiwayatTeknisi(app);
   if(view==='antrian') return renderAntrianForeman(app);
+  if(view==='riwayatForeman') return renderRiwayatForeman(app);
   if(view==='konfirmasi') return renderKonfirmasiSA(app);
   if(view==='followup') return renderFollowUp(app);
   if(view==='laporan') return renderLaporan(app);
@@ -274,6 +311,33 @@ function requireSA(app){
   if(currentSA) return true;
   app.innerHTML = '<div class="card"><p class="note">Pilih nama SA Anda dulu di sidebar.</p></div>';
   return false;
+}
+function requireTeknisi(app){
+  if(currentTeknisi) return true;
+  app.innerHTML = '<div class="card"><p class="note">Pilih nama Teknisi Anda dulu di sidebar.</p></div>';
+  return false;
+}
+function requireForeman(app){
+  if(currentForeman) return true;
+  app.innerHTML = '<div class="card"><p class="note">Pilih nama Foreman Anda dulu di sidebar.</p></div>';
+  return false;
+}
+function statusBadgeClass(status){
+  if(status==='Report Terkirim') return 'sent';
+  if(status==='Follow Up') return 'followup';
+  if(status==='Menunggu Foreman' || status==='Menunggu Partman') return 'wait';
+  return '';
+}
+function sortRows(rows, key, dir){
+  const isDateKey = key === 'Tanggal_Masuk' || key === 'Timestamp';
+  return [...rows].sort((a,b)=>{
+    let av = a[key] || '', bv = b[key] || '';
+    if(isDateKey){ av = new Date(av).getTime() || 0; bv = new Date(bv).getTime() || 0; }
+    else { av = String(av).toLowerCase(); bv = String(bv).toLowerCase(); }
+    if(av < bv) return dir === 'asc' ? -1 : 1;
+    if(av > bv) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
 }
 
 /* ---------- TEKNISI: input saran ---------- */
@@ -344,7 +408,7 @@ function checklistRow(key, label){
   return `
   <tr>
     <td>${label}</td>
-    <td><select id="chk-status-${key}" onchange="toggleHarga('${key}')"><option value="OK">OK</option><option value="NOK">NOK</option></select></td>
+    <td><select id="chk-status-${key}" onchange="toggleHarga('${key}')"><option value="">-- Pilih --</option><option value="OK">OK</option><option value="NOK">NOK</option></select></td>
     <td><input id="chk-ket-${key}"></td>
     ${hargaCell}
   </tr>`;
@@ -420,9 +484,9 @@ function prosesServiceCardHtml(){
     <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Proses Service</h3><span class="accordion-chevron">&#9662;</span></div>
     <div class="accordion-body">
     <label>Pekerjaan</label>
-    <textarea id="pekerjaan" rows="3"></textarea>
+    <textarea id="pekerjaan" rows="3" placeholder="Input sesuai jasa yang di buat di WO"></textarea>
     <label>Request Customer</label>
-    <textarea id="requestCustomer" rows="3"></textarea>
+    <textarea id="requestCustomer" rows="3" placeholder="Input sesuai Request/Keluhan Cust. dan sertakan solusi & apa yang dilakukan"></textarea>
     <div style="overflow-x:auto;">
       <table class="items-table checklist-table">
         <thead>
@@ -506,8 +570,13 @@ function ujiEmisiCardHtml(){
     <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Uji Emisi</h3><span class="accordion-chevron">&#9662;</span></div>
     <div class="accordion-body">
     <div class="row">
-      <div><label>Status</label>
-        <select id="ujiEmisiStatus"><option value="Tidak Aktif">Tidak Aktif</option><option value="Aktif">Aktif</option></select>
+      <div><label>Apakah Status Uji Emisi Unit Ini ?</label>
+        <select id="ujiEmisiStatus">
+          <option value="">-- Pilih --</option>
+          <option value="Tidak Lulus/Belum Uji Emisi/Kadaluarsa">Tidak Lulus/Belum Uji Emisi/Kadaluarsa</option>
+          <option value="Aktif">Aktif</option>
+        </select>
+        <p class="note">Cek di <a href="https://ujiemisi.jakarta.go.id/" target="_blank" rel="noopener">ujiemisi.jakarta.go.id</a></p>
       </div>
       <div><label>Foto</label>
         <input id="ujiEmisiFoto" type="file" accept="image/*">
@@ -518,7 +587,7 @@ function ujiEmisiCardHtml(){
   </div>`;
 }
 function fillUjiEmisiFromKunjungan(kj){
-  document.getElementById('ujiEmisiStatus').value = kj.UjiEmisi_Status || 'Tidak Aktif';
+  setSelectValuePreserving(document.getElementById('ujiEmisiStatus'), kj.UjiEmisi_Status);
   const existing = document.getElementById('ujiEmisiFotoExisting');
   existing.innerHTML = kj.UjiEmisi_Foto_URL ? `Foto saat ini: <a href="${kj.UjiEmisi_Foto_URL}" target="_blank">lihat</a> (upload baru untuk mengganti)` : '';
 }
@@ -599,12 +668,16 @@ async function renderInputTeknisi(app){
     <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Special Service Campaign</h3><span class="accordion-chevron">&#9662;</span></div>
     <div class="accordion-body">
     <div class="row">
-      <div><label>Terlibat</label>
-        <select id="sscTerlibat" onchange="toggleSSC()"><option value="No">No</option><option value="Yes">Yes</option></select>
+      <div><label>Apakah Unit Ini Terlibat SSC ?</label>
+        <select id="sscTerlibat" onchange="toggleSSC()">
+          <option value="Tidak Terlibat">Tidak Terlibat</option>
+          <option value="Terlibat">Terlibat</option>
+        </select>
+        <p class="note">Cek di <a href="https://ssc.toyota.astra.co.id/" target="_blank" rel="noopener">ssc.toyota.astra.co.id</a></p>
       </div>
     </div>
     <div id="ssc-block" style="display:none">
-      <p class="note">*muncul jika memilih Yes</p>
+      <p class="note">*muncul jika memilih Terlibat</p>
       <div style="overflow-x:auto;">
         <table class="items-table">
           <thead><tr><th>SSC</th><th>Status</th><th>Alasan</th><th></th></tr></thead>
@@ -624,7 +697,7 @@ async function renderInputTeknisi(app){
   addItemBlock();
 }
 function toggleSSC(){
-  const isYes = document.getElementById('sscTerlibat').value === 'Yes';
+  const isYes = document.getElementById('sscTerlibat').value === 'Terlibat';
   document.getElementById('ssc-block').style.display = isYes ? '' : 'none';
   // #sscWrap cuma ada di form create Teknisi - di form edit Foreman (#foremanSSCWrap)
   // baris sudah diisi eksplisit dari data yang ada, jadi tidak perlu auto-tambah baris.
@@ -676,6 +749,7 @@ function addItemBlock(){
     <td><input class="f-harga" type="text" inputmode="numeric" oninput="formatRibuan(this); updateTotalParts()"></td>
     <td><input class="f-ket" placeholder="cth: aus, bocor, patah dudukan..."></td>
     <td><select class="f-ketersediaan">
+          <option value="">-- Pilih --</option>
           <option value="Ready">Ready</option>
           <option value="Indent">Indent</option>
           <option value="Tidak Tersedia (perlu order)">Tidak Tersedia (perlu order)</option>
@@ -834,6 +908,84 @@ async function printTeknisiReport(idKunjungan, btn){
     if(btn){ btn.disabled = false; btn.textContent = 'Cetak Laporan (Draft)'; }
   }
 }
+let riwayatTeknisiState = { rows: [], search: '', status: '', sortKey: 'Tanggal_Masuk', sortDir: 'desc' };
+async function renderRiwayatTeknisi(app){
+  if(!requireTeknisi(app)) return;
+  app.innerHTML = `<div class="card"><h3>Riwayat Saya</h3><div id="riwayatBody">Memuat...</div></div>`;
+  const rows = await api('listKunjungan');
+  const body = document.getElementById('riwayatBody');
+  if(!body) return;
+  if(rows.demo){ body.innerHTML = '<p class="note">Demo mode.</p>'; return; }
+  riwayatTeknisiState = { rows: rows.filter(r=>r.Teknisi===currentTeknisi), search: '', status: '', sortKey: 'Tanggal_Masuk', sortDir: 'desc' };
+  renderRiwayatTeknisiTable();
+}
+function setRiwayatTeknisiSort(key){
+  const st = riwayatTeknisiState;
+  if(st.sortKey === key) st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc';
+  else { st.sortKey = key; st.sortDir = 'asc'; }
+  renderRiwayatTeknisiTable();
+}
+function renderRiwayatTeknisiTable(){
+  const st = riwayatTeknisiState;
+  const body = document.getElementById('riwayatBody');
+  if(!body) return;
+  const searchElBefore = document.getElementById('riwayatTeknisiSearch');
+  const hadFocus = searchElBefore && document.activeElement === searchElBefore;
+  const caretPos = hadFocus ? searchElBefore.selectionStart : null;
+
+  let filtered = st.rows.filter(r=>{
+    const q = st.search.toLowerCase();
+    const matchesSearch = !q || (r.No_Polisi||'').toLowerCase().includes(q) || (r.Nama_Customer||'').toLowerCase().includes(q);
+    const matchesStatus = !st.status || r.Status === st.status;
+    return matchesSearch && matchesStatus;
+  });
+  filtered = sortRows(filtered, st.sortKey, st.sortDir);
+  const statuses = [...new Set(st.rows.map(r=>r.Status))];
+  const arrow = key => st.sortKey===key ? (st.sortDir==='asc' ? ' ▲' : ' ▼') : '';
+
+  body.innerHTML = `
+    <div class="row" style="margin-bottom:4px;">
+      <div><label>Cari</label><input id="riwayatTeknisiSearch" placeholder="No. Polisi atau Nama Customer" value="${escapeHtml(st.search)}"></div>
+      <div><label>Filter Status</label>
+        <select id="riwayatTeknisiStatus">
+          <option value="">Semua Status</option>
+          ${statuses.map(s=>`<option value="${escapeHtml(s)}" ${s===st.status?'selected':''}>${escapeHtml(s)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+    <table>
+      <thead><tr>
+        <th style="cursor:pointer;" onclick="setRiwayatTeknisiSort('No_Polisi')">No. Polisi${arrow('No_Polisi')}</th>
+        <th style="cursor:pointer;" onclick="setRiwayatTeknisiSort('Nama_Customer')">Customer${arrow('Nama_Customer')}</th>
+        <th style="cursor:pointer;" onclick="setRiwayatTeknisiSort('Tanggal_Masuk')">Tanggal${arrow('Tanggal_Masuk')}</th>
+        <th style="cursor:pointer;" onclick="setRiwayatTeknisiSort('Tipe_Service')">Tipe Service${arrow('Tipe_Service')}</th>
+        <th style="cursor:pointer;" onclick="setRiwayatTeknisiSort('Status')">Status${arrow('Status')}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        ${filtered.length ? filtered.map(r=>`
+          <tr>
+            <td>${escapeHtml(r.No_Polisi)}</td>
+            <td>${escapeHtml(r.Nama_Customer)}</td>
+            <td>${r.Tanggal_Masuk ? toDateInputValue(r.Tanggal_Masuk) : '-'}</td>
+            <td>${escapeHtml(r.Tipe_Service||'-')}</td>
+            <td><span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span></td>
+            <td><button type="button" class="secondary" onclick="printTeknisiReport('${r.ID_Kunjungan}', this)">Cetak (Draft)</button></td>
+          </tr>`).join('') : `<tr><td colspan="6"><p class="note">Tidak ada data.</p></td></tr>`}
+      </tbody>
+    </table>
+    </div>
+    <p class="note">${filtered.length} dari ${st.rows.length} kunjungan.</p>
+  `;
+  document.getElementById('riwayatTeknisiSearch').addEventListener('input', e=>{ st.search = e.target.value; renderRiwayatTeknisiTable(); });
+  document.getElementById('riwayatTeknisiStatus').addEventListener('change', e=>{ st.status = e.target.value; renderRiwayatTeknisiTable(); });
+  if(hadFocus){
+    const el = document.getElementById('riwayatTeknisiSearch');
+    el.focus();
+    el.setSelectionRange(caretPos, caretPos);
+  }
+}
 
 /* ---------- FOREMAN: lengkapi & edit antrian ---------- */
 async function renderAntrianForeman(app){
@@ -909,8 +1061,12 @@ async function openForemanEdit(id){
     <div class="accordion-head" onclick="toggleAccordion(this)"><h3>Special Service Campaign</h3><span class="accordion-chevron">&#9662;</span></div>
     <div class="accordion-body">
     <div class="row">
-      <div><label>Terlibat</label>
-        <select id="sscTerlibat" onchange="toggleSSC()"><option value="No">No</option><option value="Yes">Yes</option></select>
+      <div><label>Apakah Unit Ini Terlibat SSC ?</label>
+        <select id="sscTerlibat" onchange="toggleSSC()">
+          <option value="Tidak Terlibat">Tidak Terlibat</option>
+          <option value="Terlibat">Terlibat</option>
+        </select>
+        <p class="note">Cek di <a href="https://ssc.toyota.astra.co.id/" target="_blank" rel="noopener">ssc.toyota.astra.co.id</a></p>
       </div>
     </div>
     <div id="ssc-block" style="display:none">
@@ -947,7 +1103,11 @@ async function openForemanEdit(id){
   fillProsesServiceFromKunjungan(kj);
   fillHybridHealthCheckFromKunjungan(kj);
   fillUjiEmisiFromKunjungan(kj);
-  document.getElementById('sscTerlibat').value = kj.SSC_Terlibat || 'No';
+  // Terjemahkan nilai lama "Yes"/"No" (sebelum opsi diganti jadi Terlibat/Tidak Terlibat)
+  document.getElementById('sscTerlibat').value =
+    kj.SSC_Terlibat === 'Yes' ? 'Terlibat' :
+    kj.SSC_Terlibat === 'No' ? 'Tidak Terlibat' :
+    (kj.SSC_Terlibat || 'Tidak Terlibat');
   toggleSSC();
   document.getElementById('namaForeman').value = kj.Nama_Foreman || '';
 
@@ -1008,6 +1168,7 @@ function addForemanPartRow(it){
     <td><input class="fp-hargasatuan" type="text" inputmode="numeric" oninput="formatRibuan(this)" value="${toRibuan(it.Harga_Satuan_Teknisi)}"></td>
     <td><input class="fp-ket-teknisi" value="${escapeHtml(it.Keterangan_Teknisi||'')}"></td>
     <td><select class="fp-ketersediaan">
+          <option value="">-- Pilih --</option>
           <option value="Ready" ${it.Ketersediaan_Part==='Ready'?'selected':''}>Ready</option>
           <option value="Indent" ${it.Ketersediaan_Part==='Indent'?'selected':''}>Indent</option>
           <option value="Tidak Tersedia (perlu order)" ${it.Ketersediaan_Part==='Tidak Tersedia (perlu order)'?'selected':''}>Tidak Tersedia (perlu order)</option>
@@ -1183,6 +1344,84 @@ async function finishAndGenerate(btn){
     if(btn){ btn.disabled = false; btn.textContent = 'Kirim ke SA'; }
   }
 }
+let riwayatForemanState = { rows: [], search: '', status: '', sortKey: 'Tanggal_Masuk', sortDir: 'desc' };
+async function renderRiwayatForeman(app){
+  if(!requireForeman(app)) return;
+  app.innerHTML = `<div class="card"><h3>Riwayat</h3><div id="riwayatForemanBody">Memuat...</div></div>`;
+  const rows = await api('listKunjungan');
+  const body = document.getElementById('riwayatForemanBody');
+  if(!body) return;
+  if(rows.demo){ body.innerHTML = '<p class="note">Demo mode.</p>'; return; }
+  riwayatForemanState = { rows: rows.filter(r=>r.Nama_Foreman===currentForeman), search: '', status: '', sortKey: 'Tanggal_Masuk', sortDir: 'desc' };
+  renderRiwayatForemanTable();
+}
+function setRiwayatForemanSort(key){
+  const st = riwayatForemanState;
+  if(st.sortKey === key) st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc';
+  else { st.sortKey = key; st.sortDir = 'asc'; }
+  renderRiwayatForemanTable();
+}
+function renderRiwayatForemanTable(){
+  const st = riwayatForemanState;
+  const body = document.getElementById('riwayatForemanBody');
+  if(!body) return;
+  const searchElBefore = document.getElementById('riwayatForemanSearch');
+  const hadFocus = searchElBefore && document.activeElement === searchElBefore;
+  const caretPos = hadFocus ? searchElBefore.selectionStart : null;
+
+  let filtered = st.rows.filter(r=>{
+    const q = st.search.toLowerCase();
+    const matchesSearch = !q || (r.No_Polisi||'').toLowerCase().includes(q) || (r.Nama_Customer||'').toLowerCase().includes(q);
+    const matchesStatus = !st.status || r.Status === st.status;
+    return matchesSearch && matchesStatus;
+  });
+  filtered = sortRows(filtered, st.sortKey, st.sortDir);
+  const statuses = [...new Set(st.rows.map(r=>r.Status))];
+  const arrow = key => st.sortKey===key ? (st.sortDir==='asc' ? ' ▲' : ' ▼') : '';
+
+  body.innerHTML = `
+    <div class="row" style="margin-bottom:4px;">
+      <div><label>Cari</label><input id="riwayatForemanSearch" placeholder="No. Polisi atau Nama Customer" value="${escapeHtml(st.search)}"></div>
+      <div><label>Filter Status</label>
+        <select id="riwayatForemanStatus">
+          <option value="">Semua Status</option>
+          ${statuses.map(s=>`<option value="${escapeHtml(s)}" ${s===st.status?'selected':''}>${escapeHtml(s)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div style="overflow-x:auto;">
+    <table>
+      <thead><tr>
+        <th style="cursor:pointer;" onclick="setRiwayatForemanSort('No_Polisi')">No. Polisi${arrow('No_Polisi')}</th>
+        <th style="cursor:pointer;" onclick="setRiwayatForemanSort('Nama_Customer')">Customer${arrow('Nama_Customer')}</th>
+        <th style="cursor:pointer;" onclick="setRiwayatForemanSort('Tanggal_Masuk')">Tanggal${arrow('Tanggal_Masuk')}</th>
+        <th style="cursor:pointer;" onclick="setRiwayatForemanSort('SA')">SA${arrow('SA')}</th>
+        <th style="cursor:pointer;" onclick="setRiwayatForemanSort('Status')">Status${arrow('Status')}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        ${filtered.length ? filtered.map(r=>`
+          <tr>
+            <td>${escapeHtml(r.No_Polisi)}</td>
+            <td>${escapeHtml(r.Nama_Customer)}</td>
+            <td>${r.Tanggal_Masuk ? toDateInputValue(r.Tanggal_Masuk) : '-'}</td>
+            <td>${escapeHtml(r.SA||'-')}</td>
+            <td><span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span></td>
+            <td>${r.PDF_URL ? `<a href="${r.PDF_URL}" target="_blank">Buka PDF Report</a>` : '-'}</td>
+          </tr>`).join('') : `<tr><td colspan="6"><p class="note">Tidak ada data.</p></td></tr>`}
+      </tbody>
+    </table>
+    </div>
+    <p class="note">${filtered.length} dari ${st.rows.length} kunjungan.</p>
+  `;
+  document.getElementById('riwayatForemanSearch').addEventListener('input', e=>{ st.search = e.target.value; renderRiwayatForemanTable(); });
+  document.getElementById('riwayatForemanStatus').addEventListener('change', e=>{ st.status = e.target.value; renderRiwayatForemanTable(); });
+  if(hadFocus){
+    const el = document.getElementById('riwayatForemanSearch');
+    el.focus();
+    el.setSelectionRange(caretPos, caretPos);
+  }
+}
 
 /* ---------- SA: konfirmasi jadwal, follow up & laporan ---------- */
 async function renderKonfirmasiSA(app){
@@ -1329,6 +1568,7 @@ async function renderSemua(app){
     `</table>`;
 }
 
+updateIdentitySwitches();
 renderTabs();
 </script>
 </body>
