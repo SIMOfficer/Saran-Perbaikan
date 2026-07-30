@@ -30,6 +30,7 @@
   .badge.ready{background:#2980b9;}
   .badge.sent{background:var(--ok);}
   .badge.followup{background:#8e44ad;}
+  .badge.overdue{background:var(--primary);}
   .item-block{border:1px dashed #ccc;border-radius:8px;padding:12px;margin-top:10px;position:relative;}
   .items-table td,.items-table th{vertical-align:middle;}
   .items-table td input{margin:0;}
@@ -71,7 +72,7 @@ let currentDetailId = null;
 const TABS = {
   teknisi:   [["input","Input Saran Baru"],["riwayat","Riwayat Saya"]],
   foreman:   [["antrian","Antrian Perlu Dilengkapi"]],
-  sa:        [["followup","Follow Up (H+3)"],["laporan","Kirim Report Customer"]],
+  sa:        [["followup","Follow Up"],["laporan","Kirim Report Customer"]],
   kabengkel: [["dashboard","Dashboard"],["semua","Semua Kunjungan"]],
 };
 
@@ -1091,14 +1092,28 @@ async function finishAndGenerate(btn){
 
 /* ---------- SA: follow up & laporan ---------- */
 async function renderFollowUp(app){
-  app.innerHTML = `<div class="card"><h3>Follow Up H+3</h3><div id="list">Memuat...</div></div>`;
+  app.innerHTML = `<div class="card"><h3>Follow Up Customer</h3><div id="list">Memuat...</div></div>`;
   const rows = await api('listKunjungan');
   const list = document.getElementById('list');
   if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
-  const due = rows.filter(r=>r.Status==='Report Terkirim' && new Date(r.Tanggal_FollowUp_Rencana) <= new Date());
-  list.innerHTML = due.length ? due.map(r=>`
+  const today = new Date(); today.setHours(0,0,0,0);
+  const pending = rows.filter(r=>r.Status==='Report Terkirim' && (r.Status_FollowUp||'Belum')==='Belum');
+  const overdue = pending.filter(r=>new Date(r.Tanggal_FollowUp_Rencana) <= today);
+  const upcoming = pending.filter(r=>new Date(r.Tanggal_FollowUp_Rencana) > today);
+
+  const cardHtml = (r, isOverdue) => `
     <div class="item-block">
-      <b>${r.No_Polisi}</b> - ${r.Nama_Customer} (SA: ${r.SA})
+      <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)} (SA: ${escapeHtml(r.SA)})
+      <span class="badge ${isOverdue?'overdue':'wait'}">${isOverdue?'Lewat Jatuh Tempo':'Belum Jatuh Tempo'}</span>
+      <div class="row">
+        <div><label>Tanggal Rencana Follow Up</label>
+          <input type="date" id="tgl-${r.ID_Kunjungan}" value="${toDateInputValue(r.Tanggal_FollowUp_Rencana)}">
+        </div>
+        <div style="align-self:flex-end;">
+          <button type="button" class="secondary" onclick="saveFollowUpDate('${r.ID_Kunjungan}')">Simpan Tanggal</button>
+        </div>
+      </div>
+      ${isOverdue ? `
       <div class="row">
         <div><label>Status Follow Up</label>
           <select id="fu-${r.ID_Kunjungan}">
@@ -1107,16 +1122,32 @@ async function renderFollowUp(app){
         </div>
         <div><label>Catatan</label><input id="note-${r.ID_Kunjungan}"></div>
       </div>
-      <button class="secondary" onclick="saveFollowUp('${r.ID_Kunjungan}')">Simpan</button>
-    </div>`).join('') : '<p>Tidak ada follow up jatuh tempo hari ini.</p>';
+      <button type="button" class="primary" onclick="saveFollowUp('${r.ID_Kunjungan}')">Simpan Hasil Follow Up</button>
+      ` : ''}
+    </div>`;
+
+  list.innerHTML = `
+    <h4>Sudah Lewat Jatuh Tempo (${overdue.length})</h4>
+    ${overdue.length ? overdue.map(r=>cardHtml(r,true)).join('') : '<p class="note">Tidak ada.</p>'}
+    <h4 style="margin-top:22px;">Belum Jatuh Tempo (${upcoming.length})</h4>
+    ${upcoming.length ? upcoming.map(r=>cardHtml(r,false)).join('') : '<p class="note">Tidak ada.</p>'}
+  `;
+}
+async function saveFollowUpDate(id){
+  const val = document.getElementById('tgl-'+id).value;
+  if(!val){ alert('Tanggal wajib diisi'); return; }
+  const res = await api('updateRow','POST',{ sheet:'Kunjungan', id, fields:{ Tanggal_FollowUp_Rencana: val } });
+  if(res.success){ renderFollowUp(document.getElementById('app')); }
+  else alert('Gagal menyimpan: '+(res.error||'unknown error'));
 }
 async function saveFollowUp(id){
-  await api('updateFollowUp','POST',{
+  const res = await api('updateFollowUp','POST',{
     idKunjungan:id,
     statusFollowUp: document.getElementById('fu-'+id).value,
     catatan: document.getElementById('note-'+id).value
   });
-  alert('Follow up tersimpan');
+  if(res.success){ renderFollowUp(document.getElementById('app')); }
+  else alert('Gagal menyimpan: '+(res.error||'unknown error'));
 }
 async function renderLaporan(app){
   app.innerHTML = `<div class="card"><h3>Kunjungan Siap Dikirim ke Customer</h3><div id="list">Memuat...</div></div>`;
