@@ -664,9 +664,35 @@ async function submitKunjungan(){
       ujiEmisi
     };
     const res = await api('createKunjungan','POST',body);
-    alert(res.demo ? 'Demo: data akan tersimpan setelah API terhubung.' : 'Tersimpan! ID: '+res.idKunjungan);
+    if(res.demo){
+      alert('Demo: data akan tersimpan setelah API terhubung.');
+    } else if(res.success){
+      document.getElementById('app').innerHTML = teknisiSuccessHtml(res.idKunjungan, body.noPolisi);
+      return;
+    } else {
+      alert('Gagal menyimpan: ' + (res.error || 'unknown error'));
+    }
   } finally {
     if(btn){ btn.disabled = false; btn.textContent = 'Simpan & Kirim ke Foreman'; }
+  }
+}
+function teknisiSuccessHtml(idKunjungan, noPolisi){
+  return `
+  <div class="card">
+    <h3>Tersimpan ✓</h3>
+    <p>Data untuk <b>${escapeHtml(noPolisi)}</b> (ID: ${idKunjungan}) berhasil disimpan dan masuk antrian Foreman.</p>
+    <button class="primary" onclick="printTeknisiReport('${idKunjungan}', this)">Cetak Laporan (Draft)</button>
+    <button class="secondary" onclick="render('input')">+ Input Saran Baru Lain</button>
+  </div>`;
+}
+async function printTeknisiReport(idKunjungan, btn){
+  if(btn){ btn.disabled = true; btn.textContent = 'Menyiapkan PDF...'; }
+  try{
+    const res = await api('generateReport','POST',{ idKunjungan, printedBy: 'teknisi' });
+    if(res && res.pdfUrl) window.open(res.pdfUrl, '_blank');
+    else alert('Gagal membuat PDF: ' + (res && res.error ? res.error : 'unknown error'));
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = 'Cetak Laporan (Draft)'; }
   }
 }
 
@@ -1049,8 +1075,15 @@ async function finishAndGenerate(btn){
   try{
     const saveRes = await collectAndSaveForemanChanges();
     if(!saveRes.success && !saveRes.demo){ alert('Gagal menyimpan perubahan: '+(saveRes.error||'unknown error')); return; }
-    const res = await api('generateReport','POST',{idKunjungan: currentDetailId, namaForeman});
-    alert(res.demo ? 'Demo: PDF akan dibuat setelah API terhubung.' : 'Report terkirim ke SA: '+res.pdfUrl);
+    const res = await api('generateReport','POST',{idKunjungan: currentDetailId, namaForeman, printedBy: 'foreman'});
+    if(res.demo){
+      alert('Demo: PDF akan dibuat setelah API terhubung.');
+    } else if(res.pdfUrl){
+      window.open(res.pdfUrl, '_blank');
+      alert('Report terkirim ke SA.');
+    } else {
+      alert('Gagal membuat report: ' + (res.error || 'unknown error'));
+    }
   } finally {
     if(btn){ btn.disabled = false; btn.textContent = 'Kirim ke SA'; }
   }
