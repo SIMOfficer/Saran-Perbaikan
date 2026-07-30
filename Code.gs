@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v28-remove-technical-information'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v29-ssc-ujiemisi-relabel'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -194,8 +194,8 @@ function createKunjungan(body) {
     wiper.status || 'OK', wiper.keterangan || '', wiper.harga || '',
     lampu.status || 'OK', lampu.keterangan || '', lampu.harga || '',
     hhc.mobilHybrid || 'No', hhc.sbe50k100k || '', hhc.mobil2to5Tahun || '', hhc.hhc || '', hhc.hasil || '',
-    body.sscTerlibat || 'No',
-    ujiEmisi.status || 'Tidak Aktif', ujiEmisi.fotoUrl || '',
+    body.sscTerlibat || 'Tidak Terlibat',
+    ujiEmisi.status || 'Tidak Lulus/Belum Uji Emisi/Kadaluarsa', ujiEmisi.fotoUrl || '',
     '', 'Tidak']); // Nama_Foreman (diisi Foreman nanti), FollowUp_Dikonfirmasi (diisi SA nanti)
 
   // item-item Parts (wajib: namaKomponen, qty; opsional: keterangan, hargaSatuan, fotoUrl)
@@ -645,7 +645,7 @@ function generateReport(idKunjungan, namaForeman, printedBy) {
   insertTableAtPlaceholder(body, '{{TABEL_SSC}}', tableSSC);
 
   // Uji Emisi
-  body.replaceText('{{UJI_EMISI_STATUS}}', kj.UjiEmisi_Status || 'Tidak Aktif');
+  body.replaceText('{{UJI_EMISI_STATUS}}', kj.UjiEmisi_Status || 'Tidak Lulus/Belum Uji Emisi/Kadaluarsa');
 
   // Tanda tangan - hanya terisi saat laporan final dari Foreman
   const now = new Date();
