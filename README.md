@@ -1,4 +1,4 @@
-# Sistem Manajemen Saran Perbaikan - Prototype
+# DA-SAR (Daya Saran Perbaikan) - Prototype
 
 ## Arsitektur
 - **Frontend**: `index.html` (single page, vanilla JS) → di-host di GitHub Pages
