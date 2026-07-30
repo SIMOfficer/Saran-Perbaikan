@@ -149,7 +149,7 @@ let masterData = null;
 async function loadMasterData(){
   if(masterData) return masterData;
   const md = await api('masterData');
-  masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[], Technical_Information:[], Alasan_Technical:[] };
+  masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[] };
   return masterData;
 }
 function normalizeNoPolisi(el){
@@ -467,24 +467,12 @@ async function renderInputTeknisi(app){
     </div>
   </div>
 
-  <div class="card">
-    <h3>Technical Information</h3>
-    <div style="overflow-x:auto;">
-      <table class="items-table">
-        <thead><tr><th>Technical Information</th><th>Status</th><th>Alasan</th><th></th></tr></thead>
-        <tbody id="tiWrap"></tbody>
-      </table>
-    </div>
-    <button class="secondary" onclick="addTIRow()">+ Tambah Technical Information</button>
-  </div>
-
   ${ujiEmisiCardHtml()}
 
   <button class="primary" onclick="submitKunjungan()">Simpan &amp; Kirim ke Foreman</button>
   `;
   addJasaRow();
   addItemBlock();
-  addTIRow();
 }
 function toggleSSC(){
   const isYes = document.getElementById('sscTerlibat').value === 'Yes';
@@ -507,20 +495,6 @@ function addSSCRow(){
     <td><button type="button" class="row-remove" onclick="this.closest('tr').remove()" title="Hapus baris">&times;</button></td>
   `;
   document.getElementById('sscWrap').appendChild(tr);
-}
-function addTIRow(){
-  const md = masterData || {};
-  const tr = document.createElement('tr');
-  tr.innerHTML = `
-    <td><select class="ti-name">${optionList(md.Technical_Information)}</select></td>
-    <td><select class="ti-status"><option value="OK">OK</option><option value="NOK Sudah">NOK Sudah</option><option value="NOK Belum">NOK Belum</option></select></td>
-    <td>
-      <select class="ti-alasan" onchange="toggleOther(this)">${optionListWithOther(md.Alasan_Technical)}</select>
-      <input class="ti-alasan-other" style="display:none" placeholder="Sebutkan alasan lain">
-    </td>
-    <td><button type="button" class="row-remove" onclick="this.closest('tr').remove()" title="Hapus baris">&times;</button></td>
-  `;
-  document.getElementById('tiWrap').appendChild(tr);
 }
 let jasaCount = 0;
 function addJasaRow(){
@@ -627,17 +601,6 @@ async function submitKunjungan(){
       });
     }
 
-    const itemsTechnicalInfo = [];
-    for(const b of document.querySelectorAll('#tiWrap tr')){
-      const technicalInformation = b.querySelector('.ti-name').value;
-      if(!technicalInformation) continue;
-      itemsTechnicalInfo.push({
-        technicalInformation,
-        status: b.querySelector('.ti-status').value,
-        alasan: readDropdownWithOther(b.querySelector('.ti-alasan'))
-      });
-    }
-
     const ujiEmisi = { status: document.getElementById('ujiEmisiStatus').value };
     const ujiEmisiFile = document.getElementById('ujiEmisiFoto').files[0];
     if(ujiEmisiFile){
@@ -688,7 +651,6 @@ async function submitKunjungan(){
       hybridHealthCheck,
       sscTerlibat: document.getElementById('sscTerlibat').value,
       itemsSSC,
-      itemsTechnicalInfo,
       ujiEmisi
     };
     const res = await api('createKunjungan','POST',body);
@@ -800,17 +762,6 @@ async function openForemanEdit(id){
   </div>
   <button class="primary" onclick="saveForemanChanges()">Simpan Perubahan</button>
 
-  <div class="card" style="margin-top:16px;">
-    <h3>Technical Information</h3>
-    <div style="overflow-x:auto;">
-      <table class="items-table">
-        <thead><tr><th>Technical Information</th><th>Status</th><th>Alasan</th><th></th></tr></thead>
-        <tbody id="foremanTIWrap"></tbody>
-      </table>
-    </div>
-    <button class="secondary" onclick="addForemanTIRow()">+ Tambah Technical Information</button>
-  </div>
-
   ${ujiEmisiCardHtml()}
   <button class="primary" onclick="saveForemanChanges()">Simpan Perubahan</button>
 
@@ -839,7 +790,6 @@ async function openForemanEdit(id){
   (detail.itemsJasa||[]).forEach(it=>addForemanJasaRow(it));
   (detail.items||[]).forEach(it=>addForemanPartRow(it));
   (detail.itemsSSC||[]).forEach(it=>addForemanSSCRow(it));
-  (detail.itemsTechnicalInfo||[]).forEach(it=>addForemanTIRow(it));
 }
 function addForemanJasaRow(it){
   it = it || {};
@@ -994,54 +944,6 @@ async function deleteForemanSSCRow(btn){
   if(id){
     if(!confirm('Hapus baris SSC ini?')) return;
     await api('deleteRow','POST',{ sheet:'Item_SSC', id });
-  }
-  tr.remove();
-}
-function addForemanTIRow(it){
-  it = it || {};
-  const md = masterData || {};
-  const tr = document.createElement('tr');
-  tr.dataset.id = it.ID_TI || '';
-  const alasanIsOther = it.Alasan && !(md.Alasan_Technical||[]).includes(it.Alasan);
-  tr.innerHTML = `
-    <td><select class="fti-name">${optionList(ensureOptionPresent(md.Technical_Information, it.Technical_Information))}</select></td>
-    <td><select class="fti-status"><option value="OK">OK</option><option value="NOK Sudah">NOK Sudah</option><option value="NOK Belum">NOK Belum</option></select></td>
-    <td>
-      <select class="fti-alasan" onchange="toggleOther(this)">${optionListWithOther(md.Alasan_Technical)}</select>
-      <input class="fti-alasan-other" style="display:${alasanIsOther?'':'none'}" placeholder="Sebutkan alasan lain" value="${alasanIsOther?escapeHtml(it.Alasan):''}">
-    </td>
-    <td>
-      <button type="button" class="secondary" onclick="saveForemanTIRow(this)">Simpan</button>
-      <button type="button" class="row-remove" onclick="deleteForemanTIRow(this)" title="Hapus">&times;</button>
-    </td>
-  `;
-  document.getElementById('foremanTIWrap').appendChild(tr);
-  tr.querySelector('.fti-name').value = it.Technical_Information || '';
-  tr.querySelector('.fti-status').value = it.Status || 'OK';
-  if(alasanIsOther) tr.querySelector('.fti-alasan').value = 'Others';
-  else tr.querySelector('.fti-alasan').value = it.Alasan || '';
-}
-async function saveForemanTIRow(btn){
-  const tr = btn.closest('tr');
-  const id = tr.dataset.id;
-  const technicalInformation = tr.querySelector('.fti-name').value;
-  const status = tr.querySelector('.fti-status').value;
-  const alasan = readDropdownWithOther(tr.querySelector('.fti-alasan'));
-  let res;
-  if(!id){
-    res = await api('addItemTechnicalInfo','POST',{ idKunjungan: currentDetailId, technicalInformation, status, alasan });
-    if(res.success) tr.dataset.id = res.idTI;
-  } else {
-    res = await api('updateRow','POST',{ sheet:'Item_TechnicalInfo', id, fields:{ Technical_Information: technicalInformation, Status: status, Alasan: alasan } });
-  }
-  btn.textContent = res.success ? 'Tersimpan ✓' : 'Gagal';
-}
-async function deleteForemanTIRow(btn){
-  const tr = btn.closest('tr');
-  const id = tr.dataset.id;
-  if(id){
-    if(!confirm('Hapus baris Technical Information ini?')) return;
-    await api('deleteRow','POST',{ sheet:'Item_TechnicalInfo', id });
   }
   tr.remove();
 }
