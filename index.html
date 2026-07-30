@@ -61,18 +61,33 @@
   }
   *{box-sizing:border-box;font-family:var(--font-sans);}
   body{margin:0;background:var(--bg);color:var(--text-body);}
-  header{background:var(--dark);color:#fff;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
-  header .brand{display:flex;align-items:center;gap:12px;}
-  header .brand-badge{width:40px;height:40px;border-radius:var(--radius-lg);background:var(--primary-600);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-  header h1{font-size:19px;font-weight:700;letter-spacing:-.01em;margin:0;white-space:nowrap;}
-  header h1 .dot{color:var(--primary-400);}
-  header h1 .subtitle{display:block;font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;opacity:.7;margin-top:2px;white-space:nowrap;}
-  header select{width:auto;max-width:220px;}
-  nav{display:flex;gap:4px;background:var(--surface-card);padding:0 24px;border-bottom:1px solid var(--border-default);}
-  nav button{border:none;background:none;padding:14px 18px;cursor:pointer;font-size:13.5px;font-weight:500;color:var(--text-muted);border-bottom:3px solid transparent;transition:color .15s;}
-  nav button:hover{color:var(--text-body);}
-  nav button.active{color:var(--primary-700);border-color:var(--primary-600);font-weight:600;}
-  main{padding:24px;max-width:1100px;margin:0 auto;}
+  .shell{display:flex;min-height:100vh;}
+  .sidebar{width:220px;flex-shrink:0;background:var(--surface-card);border-right:1px solid var(--border-default);display:flex;flex-direction:column;padding:20px 16px;gap:20px;}
+  .sidebar .brand{display:flex;align-items:center;gap:10px;}
+  .sidebar .brand-badge{width:36px;height:36px;border-radius:var(--radius-lg);background:var(--primary-600);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .sidebar h1{font-size:17px;font-weight:700;letter-spacing:-.01em;margin:0;color:var(--text-heading);white-space:nowrap;}
+  .sidebar h1 .dot{color:var(--primary-600);}
+  .sidebar h1 .subtitle{display:block;font-size:10px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--text-muted);margin-top:2px;white-space:nowrap;}
+  .sidebar-role{display:flex;flex-direction:column;gap:8px;}
+  .sidebar-role select{width:100%;max-width:none;}
+  #tabs{display:flex;flex-direction:column;gap:2px;}
+  #tabs button{display:flex;align-items:center;gap:10px;border:none;background:none;padding:9px 12px;border-radius:var(--radius-lg);cursor:pointer;font-size:13px;font-weight:500;color:var(--gray-600);text-align:left;transition:background .15s,color .15s;}
+  #tabs button svg{flex-shrink:0;}
+  #tabs button:hover{background:var(--gray-50);}
+  #tabs button.active{background:var(--primary-50);color:var(--primary-700);font-weight:600;}
+  .shell-main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--surface-page);}
+  .topbar{height:56px;background:var(--surface-card);border-bottom:1px solid var(--border-default);display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex-shrink:0;gap:10px;}
+  .topbar-title{font-size:15px;font-weight:600;color:var(--text-heading);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .topbar-context{font-size:12px;color:var(--text-muted);white-space:nowrap;}
+  main{padding:24px;max-width:1100px;margin:0 auto;width:100%;}
+  @media (max-width:900px){
+    .shell{flex-direction:column;}
+    .sidebar{width:100%;flex-direction:row;flex-wrap:wrap;align-items:center;padding:12px 16px;gap:12px;border-right:none;border-bottom:1px solid var(--border-default);}
+    .sidebar .brand{flex:1;}
+    .sidebar-role{flex-direction:row;flex-wrap:wrap;gap:8px;}
+    #tabs{flex-direction:row;flex-wrap:wrap;width:100%;order:3;border-top:1px solid var(--border-default);padding-top:10px;}
+    main{padding:16px;}
+  }
   .card{background:var(--surface-card);border-radius:var(--radius-xl);padding:20px;margin-bottom:16px;box-shadow:var(--ring-card),var(--shadow-sm);}
   .card.accordion{padding:0;}
   .accordion-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 20px;cursor:pointer;user-select:none;}
@@ -113,32 +128,54 @@
   .kpi{display:flex;gap:16px;flex-wrap:wrap;}
   .kpi .box{flex:1;min-width:150px;background:var(--surface-card);border-radius:var(--radius-xl);padding:16px;text-align:center;box-shadow:var(--ring-card),var(--shadow-sm);}
   .kpi .box .num{font-size:26px;font-weight:700;color:var(--primary-600);}
+  .kpi .box.warning .num{color:var(--warning-600);}
+  .kpi .box.success .num{color:var(--success-600);}
+  .kpi .box.info .num{color:var(--info-600);}
   .kpi .box .lbl{font-size:12px;color:var(--text-muted);}
   .note{font-size:12px;color:var(--text-muted);margin-top:6px;}
+  .split-panel{display:flex;background:var(--surface-card);border-radius:var(--radius-xl);box-shadow:var(--ring-card),var(--shadow-sm);overflow:hidden;min-height:65vh;}
+  .split-queue{width:300px;flex-shrink:0;border-right:1px solid var(--border-default);overflow-y:auto;padding:12px;}
+  .split-detail{flex:1;overflow-y:auto;padding:20px;min-width:0;}
+  .queue-item{background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:12px;margin-bottom:8px;cursor:pointer;transition:box-shadow .15s;}
+  .queue-item:hover{box-shadow:var(--shadow-sm);}
+  .queue-item.active{box-shadow:0 0 0 2px var(--primary-500);}
+  @media (max-width:900px){
+    .split-panel{flex-direction:column;min-height:0;}
+    .split-queue{width:100%;border-right:none;border-bottom:1px solid var(--border-default);max-height:240px;}
+  }
 </style>
 </head>
 <body>
 
-<header>
-  <div class="brand">
-    <div class="brand-badge">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M14.7 6.3a4 4 0 00-5.4 4.6L4 16.2V20h3.8l5.3-5.3a4 4 0 004.6-5.4l-2.6 2.6-2-2 2.6-2.6z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-badge">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M14.7 6.3a4 4 0 00-5.4 4.6L4 16.2V20h3.8l5.3-5.3a4 4 0 004.6-5.4l-2.6 2.6-2-2 2.6-2.6z" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      </div>
+      <h1>DA<span class="dot">&middot;</span>SAR<span class="subtitle">Daya Saran Perbaikan</span></h1>
     </div>
-    <h1>DA<span class="dot">&middot;</span>SAR<span class="subtitle">Daya Saran Perbaikan</span></h1>
+    <div class="sidebar-role">
+      <select id="roleSwitch">
+        <option value="teknisi">Login sebagai: Teknisi</option>
+        <option value="foreman">Login sebagai: Foreman</option>
+        <option value="sa">Login sebagai: Service Advisor</option>
+        <option value="kabengkel">Login sebagai: Kepala Bengkel</option>
+      </select>
+      <select id="saSwitch" style="display:none;width:auto;">
+        <option value="">-- Pilih Nama SA --</option>
+      </select>
+    </div>
+    <nav id="tabs"></nav>
+  </aside>
+  <div class="shell-main">
+    <div class="topbar">
+      <span id="pageTitle" class="topbar-title"></span>
+      <span id="topbarContext" class="topbar-context"></span>
+    </div>
+    <main id="app"></main>
   </div>
-  <select id="roleSwitch">
-    <option value="teknisi">Login sebagai: Teknisi</option>
-    <option value="foreman">Login sebagai: Foreman</option>
-    <option value="sa">Login sebagai: Service Advisor</option>
-    <option value="kabengkel">Login sebagai: Kepala Bengkel</option>
-  </select>
-  <select id="saSwitch" style="display:none;width:auto;">
-    <option value="">-- Pilih Nama SA --</option>
-  </select>
-</header>
-
-<nav id="tabs"></nav>
-<main id="app"></main>
+</div>
 
 <script>
 /* ============================================================
@@ -152,12 +189,28 @@ let currentDetailId = null;
 let currentSA = "";
 let currentView = null;
 
-const TABS = {
-  teknisi:   [["input","Input Saran Baru"],["riwayat","Riwayat Saya"]],
-  foreman:   [["antrian","Antrian Perlu Dilengkapi"]],
-  sa:        [["konfirmasi","Perlu Dikonfirmasi"],["followup","Follow Up"],["laporan","Kirim Report Customer"]],
-  kabengkel: [["dashboard","Dashboard"],["semua","Semua Kunjungan"]],
+const ICON_STROKE = 'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"';
+const ICONS = {
+  plusCircle: `<svg width="16" height="16" viewBox="0 0 24 24" ${ICON_STROKE}><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`,
+  clock: `<svg width="16" height="16" viewBox="0 0 24 24" ${ICON_STROKE}><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>`,
+  clipboardList: `<svg width="16" height="16" viewBox="0 0 24 24" ${ICON_STROKE}><rect x="6" y="4" width="12" height="17" rx="2"/><rect x="9" y="2.5" width="6" height="3" rx="1"/><line x1="9" y1="10" x2="15" y2="10"/><line x1="9" y1="14" x2="15" y2="14"/><line x1="9" y1="18" x2="13" y2="18"/></svg>`,
+  checkCircle: `<svg width="16" height="16" viewBox="0 0 24 24" ${ICON_STROKE}><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 5-5.5"/></svg>`,
+  documentText: `<svg width="16" height="16" viewBox="0 0 24 24" ${ICON_STROKE}><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><line x1="9.5" y1="12" x2="14.5" y2="12"/><line x1="9.5" y1="15.5" x2="14.5" y2="15.5"/></svg>`,
+  buildingOffice: `<svg width="16" height="16" viewBox="0 0 24 24" ${ICON_STROKE}><rect x="5" y="3" width="14" height="18" rx="1"/><line x1="9" y1="7" x2="9" y2="7.01"/><line x1="15" y1="7" x2="15" y2="7.01"/><line x1="9" y1="11" x2="9" y2="11.01"/><line x1="15" y1="11" x2="15" y2="11.01"/><line x1="9" y1="15" x2="9" y2="15.01"/><line x1="15" y1="15" x2="15" y2="15.01"/><rect x="10" y="17" width="4" height="4"/></svg>`
 };
+
+const TABS = {
+  teknisi:   [["input","Input Saran Baru","plusCircle"],["riwayat","Riwayat Saya","clock"]],
+  foreman:   [["antrian","Antrian Perlu Dilengkapi","clipboardList"]],
+  sa:        [["konfirmasi","Perlu Dikonfirmasi","checkCircle"],["followup","Follow Up","clock"],["laporan","Kirim Report Customer","documentText"]],
+  kabengkel: [["dashboard","Dashboard","buildingOffice"],["semua","Semua Kunjungan","clipboardList"]],
+};
+const VIEW_TITLES = {
+  input:"Input Saran Baru", riwayat:"Riwayat Saya", antrian:"Antrian Perlu Dilengkapi",
+  konfirmasi:"Perlu Dikonfirmasi", followup:"Follow Up", laporan:"Kirim Report Customer",
+  dashboard:"Dashboard", semua:"Semua Kunjungan"
+};
+const ROLE_LABELS = { teknisi:"Teknisi", foreman:"Foreman", sa:"Service Advisor", kabengkel:"Kepala Bengkel" };
 
 document.getElementById('roleSwitch').addEventListener('change', e=>{
   currentRole = e.target.value;
@@ -181,9 +234,9 @@ async function updateSaSwitch(){
 function renderTabs(){
   const nav = document.getElementById('tabs');
   nav.innerHTML = '';
-  TABS[currentRole].forEach(([key,label],i)=>{
+  TABS[currentRole].forEach(([key,label,icon],i)=>{
     const b = document.createElement('button');
-    b.textContent = label;
+    b.innerHTML = (ICONS[icon]||'') + '<span>' + label + '</span>';
     if(i===0) b.classList.add('active');
     b.onclick = ()=>{ [...nav.children].forEach(c=>c.classList.remove('active')); b.classList.add('active'); render(key); };
     nav.appendChild(b);
@@ -205,6 +258,8 @@ async function api(action, method='GET', body=null){
 
 function render(view){
   currentView = view;
+  document.getElementById('pageTitle').textContent = VIEW_TITLES[view] || '';
+  document.getElementById('topbarContext').textContent = (currentRole==='sa' && currentSA) ? ('SA: '+currentSA) : ('Login sebagai: '+(ROLE_LABELS[currentRole]||''));
   const app = document.getElementById('app');
   if(view==='input') return renderInputTeknisi(app);
   if(view==='riwayat') return renderRiwayatTeknisi(app);
@@ -217,7 +272,7 @@ function render(view){
 }
 function requireSA(app){
   if(currentSA) return true;
-  app.innerHTML = '<div class="card"><p class="note">Pilih nama SA Anda dulu di pojok kanan atas.</p></div>';
+  app.innerHTML = '<div class="card"><p class="note">Pilih nama SA Anda dulu di sidebar.</p></div>';
   return false;
 }
 
@@ -782,23 +837,34 @@ async function printTeknisiReport(idKunjungan, btn){
 
 /* ---------- FOREMAN: lengkapi & edit antrian ---------- */
 async function renderAntrianForeman(app){
-  app.innerHTML = `<div class="card"><h3>Antrian Perlu Dilengkapi</h3><div id="list">Memuat...</div></div>`;
+  app.innerHTML = `
+  <div class="split-panel">
+    <div class="split-queue" id="foremanQueue"><p class="note">Memuat...</p></div>
+    <div class="split-detail" id="foremanEditPanel"><div class="card"><p class="note">Pilih kunjungan dari antrian di sebelah kiri.</p></div></div>
+  </div>`;
   const rows = await api('listKunjungan');
-  const list = document.getElementById('list');
-  if(rows.demo){ list.innerHTML='<p class="note">Demo mode - hubungkan API untuk data real.</p>'; return; }
+  const queue = document.getElementById('foremanQueue');
+  if(!queue) return; // pengguna sudah pindah tab sebelum data selesai dimuat
+  if(rows.demo){ queue.innerHTML='<p class="note">Demo mode - hubungkan API untuk data real.</p>'; return; }
   // Menerima status lama "Menunggu Partman" juga, supaya kunjungan yang sudah ada sebelum
   // rename Partman->Foreman tidak hilang dari antrian.
   const waiting = rows.filter(r=>r.Status==='Menunggu Foreman' || r.Status==='Menunggu Partman');
-  if(!waiting.length){ list.innerHTML='<p>Tidak ada antrian.</p>'; return; }
-  list.innerHTML = waiting.map(r=>`
-    <div class="item-block">
-      <b>${r.No_Polisi}</b> - ${r.Nama_Customer} <span class="badge wait">Menunggu Foreman</span>
-      <br><button class="secondary" onclick="openForemanEdit('${r.ID_Kunjungan}')">Lengkapi / Edit Data</button>
-    </div>`).join('');
+  queue.innerHTML = waiting.length ? waiting.map(r=>`
+    <div class="queue-item" data-id="${r.ID_Kunjungan}" onclick="selectForemanQueueItem('${r.ID_Kunjungan}', this)">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:4px;">
+        <b>${escapeHtml(r.No_Polisi)}</b><span class="badge wait">Menunggu</span>
+      </div>
+      <div class="note">${escapeHtml(r.Nama_Customer)}</div>
+    </div>`).join('') : '<p class="note">Tidak ada antrian.</p>';
+}
+function selectForemanQueueItem(id, el){
+  [...document.querySelectorAll('.queue-item')].forEach(q=>q.classList.remove('active'));
+  el.classList.add('active');
+  openForemanEdit(id);
 }
 async function openForemanEdit(id){
   currentDetailId = id;
-  const app = document.getElementById('app');
+  const app = document.getElementById('foremanEditPanel') || document.getElementById('app');
   app.innerHTML = `<div class="card"><p class="note">Memuat data...</p></div>`;
   const md = await loadMasterData();
   const detail = await api('getKunjungan','GET',{id});
@@ -1109,6 +1175,7 @@ async function finishAndGenerate(btn){
     } else if(res.pdfUrl){
       window.open(res.pdfUrl, '_blank');
       alert('Report terkirim ke SA.');
+      if(document.getElementById('foremanQueue')) renderAntrianForeman(document.getElementById('app'));
     } else {
       alert('Gagal membuat report: ' + (res.error || 'unknown error'));
     }
@@ -1143,6 +1210,15 @@ async function confirmFollowUpDate(id){
   if(res.success){ renderKonfirmasiSA(document.getElementById('app')); }
   else alert('Gagal menyimpan: '+(res.error||'unknown error'));
 }
+function isThisWeek(dateStr){
+  if(!dateStr) return false;
+  const d = new Date(dateStr);
+  if(isNaN(d)) return false;
+  const now = new Date();
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
+  const endOfWeek = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 7);
+  return d >= startOfWeek && d < endOfWeek;
+}
 async function renderFollowUp(app){
   if(!requireSA(app)) return;
   app.innerHTML = `<div class="card"><h3>Follow Up Customer</h3><div id="list">Memuat...</div></div>`;
@@ -1150,9 +1226,12 @@ async function renderFollowUp(app){
   const list = document.getElementById('list');
   if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
   const today = new Date(); today.setHours(0,0,0,0);
-  const pending = rows.filter(r=>r.Status==='Report Terkirim' && r.SA===currentSA && r.FollowUp_Dikonfirmasi==='Ya' && (r.Status_FollowUp||'Belum')==='Belum');
+  const mine = rows.filter(r=>r.SA===currentSA);
+  const pending = mine.filter(r=>r.Status==='Report Terkirim' && r.FollowUp_Dikonfirmasi==='Ya' && (r.Status_FollowUp||'Belum')==='Belum');
   const overdue = pending.filter(r=>new Date(r.Tanggal_FollowUp_Rencana) <= today);
   const upcoming = pending.filter(r=>new Date(r.Tanggal_FollowUp_Rencana) > today);
+  const dealThisWeek = mine.filter(r=>r.Status_FollowUp==='Deal' && isThisWeek(r.Tanggal_FollowUp_Aktual)).length;
+  const rescheduleCount = mine.filter(r=>r.Status_FollowUp==='Reschedule').length;
 
   const cardHtml = (r, isOverdue) => `
     <div class="item-block">
@@ -1180,6 +1259,11 @@ async function renderFollowUp(app){
     </div>`;
 
   list.innerHTML = `
+    <div class="kpi" style="margin-bottom:22px;">
+      <div class="box warning"><div class="num">${overdue.length}</div><div class="lbl">Perlu Follow Up</div></div>
+      <div class="box success"><div class="num">${dealThisWeek}</div><div class="lbl">Deal Minggu Ini</div></div>
+      <div class="box info"><div class="num">${rescheduleCount}</div><div class="lbl">Reschedule</div></div>
+    </div>
     <h4>Sudah Lewat Jatuh Tempo (${overdue.length})</h4>
     ${overdue.length ? overdue.map(r=>cardHtml(r,true)).join('') : '<p class="note">Tidak ada.</p>'}
     <h4 style="margin-top:22px;">Belum Jatuh Tempo (${upcoming.length})</h4>
