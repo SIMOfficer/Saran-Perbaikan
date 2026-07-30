@@ -54,6 +54,9 @@
     <option value="sa">Login sebagai: Service Advisor</option>
     <option value="kabengkel">Login sebagai: Kepala Bengkel</option>
   </select>
+  <select id="saSwitch" style="display:none;width:auto;">
+    <option value="">-- Pilih Nama SA --</option>
+  </select>
 </header>
 
 <nav id="tabs"></nav>
@@ -68,17 +71,34 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyWb1fyKjQqjigkPWeCqYWG
 
 let currentRole = "teknisi";
 let currentDetailId = null;
+let currentSA = "";
+let currentView = null;
 
 const TABS = {
   teknisi:   [["input","Input Saran Baru"],["riwayat","Riwayat Saya"]],
   foreman:   [["antrian","Antrian Perlu Dilengkapi"]],
-  sa:        [["followup","Follow Up"],["laporan","Kirim Report Customer"]],
+  sa:        [["konfirmasi","Perlu Dikonfirmasi"],["followup","Follow Up"],["laporan","Kirim Report Customer"]],
   kabengkel: [["dashboard","Dashboard"],["semua","Semua Kunjungan"]],
 };
 
 document.getElementById('roleSwitch').addEventListener('change', e=>{
-  currentRole = e.target.value; renderTabs();
+  currentRole = e.target.value;
+  currentSA = "";
+  updateSaSwitch();
+  renderTabs();
 });
+document.getElementById('saSwitch').addEventListener('change', e=>{
+  currentSA = e.target.value;
+  render(currentView || TABS[currentRole][0][0]);
+});
+async function updateSaSwitch(){
+  const saSwitch = document.getElementById('saSwitch');
+  if(currentRole !== 'sa'){ saSwitch.style.display = 'none'; return; }
+  saSwitch.style.display = '';
+  const md = await loadMasterData();
+  saSwitch.innerHTML = optionList(md.Service_Advisor);
+  saSwitch.value = currentSA;
+}
 
 function renderTabs(){
   const nav = document.getElementById('tabs');
@@ -106,14 +126,21 @@ async function api(action, method='GET', body=null){
 }
 
 function render(view){
+  currentView = view;
   const app = document.getElementById('app');
   if(view==='input') return renderInputTeknisi(app);
   if(view==='riwayat') return renderRiwayatTeknisi(app);
   if(view==='antrian') return renderAntrianForeman(app);
+  if(view==='konfirmasi') return renderKonfirmasiSA(app);
   if(view==='followup') return renderFollowUp(app);
   if(view==='laporan') return renderLaporan(app);
   if(view==='dashboard') return renderDashboard(app);
   if(view==='semua') return renderSemua(app);
+}
+function requireSA(app){
+  if(currentSA) return true;
+  app.innerHTML = '<div class="card"><p class="note">Pilih nama SA Anda dulu di pojok kanan atas.</p></div>';
+  return false;
 }
 
 /* ---------- TEKNISI: input saran ---------- */
@@ -1090,20 +1117,46 @@ async function finishAndGenerate(btn){
   }
 }
 
-/* ---------- SA: follow up & laporan ---------- */
+/* ---------- SA: konfirmasi jadwal, follow up & laporan ---------- */
+async function renderKonfirmasiSA(app){
+  if(!requireSA(app)) return;
+  app.innerHTML = `<div class="card"><h3>Perlu Dikonfirmasi</h3><p class="note">Report yang baru sampai - cek/sesuaikan tanggal rencana follow up (default H+3), lalu konfirmasi supaya masuk ke kantong Follow Up.</p><div id="list">Memuat...</div></div>`;
+  const rows = await api('listKunjungan');
+  const list = document.getElementById('list');
+  if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
+  const pending = rows.filter(r=>r.Status==='Report Terkirim' && r.SA===currentSA && r.FollowUp_Dikonfirmasi!=='Ya');
+  list.innerHTML = pending.length ? pending.map(r=>`
+    <div class="item-block">
+      <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
+      <div class="row">
+        <div><label>Tanggal Rencana Follow Up</label>
+          <input type="date" id="tgl-${r.ID_Kunjungan}" value="${toDateInputValue(r.Tanggal_FollowUp_Rencana)}">
+        </div>
+      </div>
+      <button type="button" class="primary" onclick="confirmFollowUpDate('${r.ID_Kunjungan}')">Konfirmasi</button>
+    </div>`).join('') : '<p class="note">Tidak ada report baru yang perlu dikonfirmasi.</p>';
+}
+async function confirmFollowUpDate(id){
+  const val = document.getElementById('tgl-'+id).value;
+  if(!val){ alert('Tanggal wajib diisi'); return; }
+  const res = await api('updateRow','POST',{ sheet:'Kunjungan', id, fields:{ Tanggal_FollowUp_Rencana: val, FollowUp_Dikonfirmasi: 'Ya' } });
+  if(res.success){ renderKonfirmasiSA(document.getElementById('app')); }
+  else alert('Gagal menyimpan: '+(res.error||'unknown error'));
+}
 async function renderFollowUp(app){
+  if(!requireSA(app)) return;
   app.innerHTML = `<div class="card"><h3>Follow Up Customer</h3><div id="list">Memuat...</div></div>`;
   const rows = await api('listKunjungan');
   const list = document.getElementById('list');
   if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
   const today = new Date(); today.setHours(0,0,0,0);
-  const pending = rows.filter(r=>r.Status==='Report Terkirim' && (r.Status_FollowUp||'Belum')==='Belum');
+  const pending = rows.filter(r=>r.Status==='Report Terkirim' && r.SA===currentSA && r.FollowUp_Dikonfirmasi==='Ya' && (r.Status_FollowUp||'Belum')==='Belum');
   const overdue = pending.filter(r=>new Date(r.Tanggal_FollowUp_Rencana) <= today);
   const upcoming = pending.filter(r=>new Date(r.Tanggal_FollowUp_Rencana) > today);
 
   const cardHtml = (r, isOverdue) => `
     <div class="item-block">
-      <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)} (SA: ${escapeHtml(r.SA)})
+      <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
       <span class="badge ${isOverdue?'overdue':'wait'}">${isOverdue?'Lewat Jatuh Tempo':'Belum Jatuh Tempo'}</span>
       <div class="row">
         <div><label>Tanggal Rencana Follow Up</label>
@@ -1150,12 +1203,14 @@ async function saveFollowUp(id){
   else alert('Gagal menyimpan: '+(res.error||'unknown error'));
 }
 async function renderLaporan(app){
+  if(!requireSA(app)) return;
   app.innerHTML = `<div class="card"><h3>Kunjungan Siap Dikirim ke Customer</h3><div id="list">Memuat...</div></div>`;
   const rows = await api('listKunjungan');
   const list = document.getElementById('list');
   if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
-  list.innerHTML = rows.map(r=>`
-    <div class="item-block">${r.No_Polisi} - ${r.Nama_Customer}
+  const mine = rows.filter(r=>r.SA===currentSA);
+  list.innerHTML = mine.map(r=>`
+    <div class="item-block">${escapeHtml(r.No_Polisi)} - ${escapeHtml(r.Nama_Customer)}
     <span class="badge sent">${r.Status}</span>
     ${r.PDF_URL ? `<br><a href="${r.PDF_URL}" target="_blank">Buka PDF Report</a>` : ''}</div>`).join('');
 }

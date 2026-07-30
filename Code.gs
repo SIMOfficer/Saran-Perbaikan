@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v26-qr-empty-paragraph-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v27-sa-followup-confirmation'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -59,7 +59,7 @@ const HEADERS = {
     'Mobil_Hybrid','SBE_50K_100K','Mobil_2_5_Tahun','HHC','HHC_Hasil',
     'SSC_Terlibat',
     'UjiEmisi_Status','UjiEmisi_Foto_URL',
-    'Nama_Foreman'],
+    'Nama_Foreman','FollowUp_Dikonfirmasi'],
   // "Nama Parts" di Saran Perbaikan - Harga_Satuan_Teknisi adalah estimasi harga part dari
   // Teknisi sendiri saat input awal, terpisah dari Estimasi_Harga yang diisi Partman belakangan.
   Item_Saran: ['ID_Item','ID_Kunjungan','Nama_Komponen','Qty','Keterangan_Teknisi',
@@ -195,7 +195,8 @@ function createKunjungan(body) {
     lampu.status || 'OK', lampu.keterangan || '', lampu.harga || '',
     hhc.mobilHybrid || 'No', hhc.sbe50k100k || '', hhc.mobil2to5Tahun || '', hhc.hhc || '', hhc.hasil || '',
     body.sscTerlibat || 'No',
-    ujiEmisi.status || 'Tidak Aktif', ujiEmisi.fotoUrl || '']);
+    ujiEmisi.status || 'Tidak Aktif', ujiEmisi.fotoUrl || '',
+    '', 'Tidak']); // Nama_Foreman (diisi Foreman nanti), FollowUp_Dikonfirmasi (diisi SA nanti)
 
   // item-item Parts (wajib: namaKomponen, qty; opsional: keterangan, hargaSatuan, fotoUrl)
   if (body.items && body.items.length) {
