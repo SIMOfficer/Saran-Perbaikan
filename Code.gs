@@ -42,7 +42,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v22-photo-aspect-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v26-qr-empty-paragraph-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -159,7 +159,7 @@ function doPost(e) {
       case 'updateRow': result = updateRowByField(body.sheet, body.id, body.fields); break;
       case 'deleteRow': result = deleteRowByField(body.sheet, body.id); break;
       case 'uploadFoto': result = uploadFoto(body); break;
-      case 'generateReport': result = generateReport(body.idKunjungan, body.namaForeman); break;
+      case 'generateReport': result = generateReport(body.idKunjungan, body.namaForeman, body.printedBy); break;
       case 'updateFollowUp': result = updateFollowUp(body); break;
       default: result = { error: 'Unknown action' };
     }
@@ -514,8 +514,51 @@ function appendPhotoGrid(body, photos) {
   }
 }
 
-/** ============ GENERATE PDF REPORT (Foreman -> SA) ============ */
-function generateReport(idKunjungan, namaForeman) {
+/** Generate gambar QR code (stempel info, bukan link verifikasi) lewat API publik
+ *  api.qrserver.com - hasil scan cuma menampilkan teks yang dikirim. */
+function generateQrBlob(text) {
+  const url = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(text);
+  const resp = UrlFetchApp.fetch(url);
+  return resp.getBlob().setName('qr_signing.png');
+}
+
+/** Cari placeholder teks di sebuah section (Body/HeaderSection/FooterSection, termasuk
+ *  di dalam sel tabel), kosongkan paragrafnya, lalu sisipkan gambar di situ. */
+function insertImageAtPlaceholder(section, placeholder, imageBlob, widthPt) {
+  const found = section.findText(placeholder);
+  if (!found) return false;
+  const para = found.getElement().getParent().asParagraph();
+  para.setText(' '); // Docs tidak izinkan paragraf dikosongkan total via setText('')
+  const img = para.appendInlineImage(imageBlob);
+  if (widthPt) {
+    const ratio = img.getHeight() / img.getWidth();
+    img.setWidth(widthPt);
+    img.setHeight(widthPt * ratio);
+  }
+  return true;
+}
+
+/** Placeholder bisa ditaruh user di body, header, ATAU footer dokumen (footer/header
+ *  adalah section terpisah dari body di Google Docs) - coba replace/insert di ketiganya. */
+function replaceTextEverywhere(doc, placeholder, value) {
+  [doc.getBody(), doc.getHeader(), doc.getFooter()].forEach(section => {
+    if (section) section.replaceText(placeholder, value);
+  });
+}
+function insertImageAtPlaceholderEverywhere(doc, placeholder, imageBlob, widthPt) {
+  const sections = [doc.getBody(), doc.getHeader(), doc.getFooter()].filter(s => s);
+  for (const section of sections) {
+    if (insertImageAtPlaceholder(section, placeholder, imageBlob, widthPt)) return true;
+  }
+  return false;
+}
+
+/** ============ GENERATE PDF REPORT (Teknisi draft / Foreman -> SA) ============
+ *  printedBy: 'teknisi' (cetak draft langsung setelah input, status TIDAK berubah,
+ *  belum ada tanda tangan/QR) atau 'foreman' (default, laporan final: status jadi
+ *  "Report Terkirim", QR signing dibuat, PDF_URL & Nama_Foreman disimpan). */
+function generateReport(idKunjungan, namaForeman, printedBy) {
+  printedBy = printedBy === 'teknisi' ? 'teknisi' : 'foreman';
   const detail = getKunjunganDetail(idKunjungan);
   if (detail.error) return detail;
   const kj = detail.kunjungan;
@@ -527,7 +570,8 @@ function generateReport(idKunjungan, namaForeman) {
   // Duplikat template Google Docs, isi placeholder, export ke PDF
   const templateFile = DriveApp.getFileById(PDF_TEMPLATE_ID);
   const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
-  const docCopy = templateFile.makeCopy('Report_' + kj.No_Polisi + '_' + idKunjungan, folder);
+  const fileSuffix = printedBy === 'teknisi' ? '_draft' : '';
+  const docCopy = templateFile.makeCopy('Report_' + kj.No_Polisi + '_' + idKunjungan + fileSuffix, folder);
   const doc = DocumentApp.openById(docCopy.getId());
   const body = doc.getBody();
 
@@ -608,9 +652,34 @@ function generateReport(idKunjungan, namaForeman) {
   // Uji Emisi
   body.replaceText('{{UJI_EMISI_STATUS}}', kj.UjiEmisi_Status || 'Tidak Aktif');
 
-  // Tanda tangan
-  body.replaceText('{{TANGGAL}}', Utilities.formatDate(new Date(), 'GMT+7', 'dd/MM/yyyy'));
-  body.replaceText('{{NAMA_FOREMAN}}', namaForeman || '');
+  // Tanda tangan - hanya terisi saat laporan final dari Foreman
+  const now = new Date();
+  body.replaceText('{{TANGGAL}}', printedBy === 'foreman' ? Utilities.formatDate(now, 'GMT+7', 'dd/MM/yyyy') : '-');
+  body.replaceText('{{NAMA_FOREMAN}}', printedBy === 'foreman' ? (namaForeman || '') : '-');
+
+  // QR signing (stempel info, bukan link verifikasi) - hanya saat Foreman finalisasi
+  let qrWarning = null;
+  if (printedBy === 'foreman') {
+    const qrText = 'LAPORAN DITANDATANGANI\nForeman: ' + (namaForeman || '-') +
+      '\nNo. Polisi: ' + (kj.No_Polisi || '-') +
+      '\nID Kunjungan: ' + idKunjungan +
+      '\nTanggal: ' + Utilities.formatDate(now, 'GMT+7', 'dd/MM/yyyy HH:mm');
+    try {
+      const qrBlob = generateQrBlob(qrText);
+      const inserted = insertImageAtPlaceholderEverywhere(doc, '{{QR_SIGNING}}', qrBlob, 80);
+      if (!inserted) qrWarning = 'Placeholder {{QR_SIGNING}} tidak ditemukan di template';
+    } catch (e) {
+      qrWarning = 'Gagal generate/insert QR: ' + e.message;
+      replaceTextEverywhere(doc, '{{QR_SIGNING}}', '');
+    }
+  } else {
+    replaceTextEverywhere(doc, '{{QR_SIGNING}}', '');
+  }
+
+  // Info cetak - footer kecil khusus versi draft Teknisi
+  replaceTextEverywhere(doc, '{{PRINT_INFO}}', printedBy === 'teknisi'
+    ? ('Print by Teknisi - ' + Utilities.formatDate(now, 'GMT+7', 'dd/MM/yyyy HH:mm'))
+    : '');
 
   // Dokumentasi: foto part yang ada fotonya + foto sertifikat uji emisi
   const photos = items.map(it => ({ label: it.Nama_Komponen, fotoUrl: it.Foto_URL }));
@@ -620,26 +689,29 @@ function generateReport(idKunjungan, namaForeman) {
   doc.saveAndClose();
 
   const pdfBlob = docCopy.getAs('application/pdf');
-  const pdfFile = folder.createFile(pdfBlob).setName('Report_' + kj.No_Polisi + '_' + idKunjungan + '.pdf');
+  const pdfFile = folder.createFile(pdfBlob).setName('Report_' + kj.No_Polisi + '_' + idKunjungan + fileSuffix + '.pdf');
   pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   DriveApp.getFileById(docCopy.getId()).setTrashed(true); // hapus file docs sementara, sisakan PDF
 
-  // update status kunjungan + simpan nama Foreman yang mengirim
-  const sh = getSheet('Kunjungan');
-  const data = sh.getDataRange().getValues();
-  const header = data[0];
-  const statusCol = header.indexOf('Status');
-  const pdfCol = header.indexOf('PDF_URL');
-  const foremanCol = header.indexOf('Nama_Foreman');
-  for (let r = 1; r < data.length; r++) {
-    if (data[r][0] === idKunjungan) {
-      sh.getRange(r + 1, statusCol + 1).setValue('Report Terkirim');
-      sh.getRange(r + 1, pdfCol + 1).setValue(pdfFile.getUrl());
-      if (foremanCol !== -1 && namaForeman) sh.getRange(r + 1, foremanCol + 1).setValue(namaForeman);
-      break;
+  // update status kunjungan + simpan nama Foreman yang mengirim - hanya untuk laporan final
+  // (cetak draft oleh Teknisi tidak mengubah status, Foreman tetap wajib QC/finalisasi)
+  if (printedBy === 'foreman') {
+    const sh = getSheet('Kunjungan');
+    const data = sh.getDataRange().getValues();
+    const header = data[0];
+    const statusCol = header.indexOf('Status');
+    const pdfCol = header.indexOf('PDF_URL');
+    const foremanCol = header.indexOf('Nama_Foreman');
+    for (let r = 1; r < data.length; r++) {
+      if (data[r][0] === idKunjungan) {
+        sh.getRange(r + 1, statusCol + 1).setValue('Report Terkirim');
+        sh.getRange(r + 1, pdfCol + 1).setValue(pdfFile.getUrl());
+        if (foremanCol !== -1 && namaForeman) sh.getRange(r + 1, foremanCol + 1).setValue(namaForeman);
+        break;
+      }
     }
   }
-  return { success: true, pdfUrl: pdfFile.getUrl(), totalEstimasi: totalJasa + totalParts };
+  return { success: true, pdfUrl: pdfFile.getUrl(), totalEstimasi: totalJasa + totalParts, qrWarning: qrWarning };
 }
 
 /** ============ SA: FOLLOW UP (H+3) ============ */
