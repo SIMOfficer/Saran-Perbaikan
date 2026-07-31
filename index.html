@@ -256,9 +256,8 @@ async function updateIdentitySwitches(){
     teknisiSwitch.innerHTML = optionList(md.Teknisi);
     teknisiSwitch.value = currentTeknisi;
   } else if(currentRole === 'foreman'){
-    const rows = await api('listKunjungan');
-    const names = rows.demo ? [] : [...new Set(rows.map(r=>r.Nama_Foreman).filter(Boolean))].sort();
-    foremanSwitch.innerHTML = optionList(names);
+    const md = await loadMasterData();
+    foremanSwitch.innerHTML = optionList(md.Foreman);
     foremanSwitch.value = currentForeman;
   }
 }
@@ -340,13 +339,81 @@ function sortRows(rows, key, dir){
   });
 }
 
+/* ---------- Tabel generik: sortable + filterable per kolom ---------- */
+const DT_REGISTRY = {};
+function dtInit(containerId, rows, columns, sortKey, emptyMsg){
+  DT_REGISTRY[containerId] = { rows, columns, filters: {}, sortKey, sortDir: 'desc', emptyMsg: emptyMsg || 'Tidak ada data.' };
+  dtRender(containerId);
+}
+function dtSort(containerId, key){
+  const st = DT_REGISTRY[containerId];
+  if(!st) return;
+  if(st.sortKey === key) st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc';
+  else { st.sortKey = key; st.sortDir = 'asc'; }
+  dtRender(containerId);
+}
+function dtFilter(containerId, key, value){
+  const st = DT_REGISTRY[containerId];
+  if(!st) return;
+  st.filters[key] = value;
+  dtRender(containerId);
+}
+function dtRender(containerId){
+  const st = DT_REGISTRY[containerId];
+  const container = document.getElementById(containerId);
+  if(!st || !container) return;
+  const prevFocused = document.activeElement;
+  const prevFocusedId = (prevFocused && prevFocused.id && prevFocused.id.indexOf(containerId+'-f-')===0) ? prevFocused.id : null;
+  const prevCaret = (prevFocusedId && typeof prevFocused.selectionStart === 'number') ? prevFocused.selectionStart : null;
+
+  let filtered = st.rows.filter(r => st.columns.every(col => {
+    if(!col.filterable) return true;
+    const fval = st.filters[col.key];
+    if(!fval) return true;
+    const rval = String(col.filterValue ? col.filterValue(r) : (r[col.key]||''));
+    return col.filterType === 'select' ? rval === fval : rval.toLowerCase().includes(fval.toLowerCase());
+  }));
+  filtered = sortRows(filtered, st.sortKey, st.sortDir);
+  const arrow = key => st.sortKey===key ? (st.sortDir==='asc' ? ' ▲' : ' ▼') : '';
+
+  const headCells = st.columns.map(col => col.sortable===false
+    ? `<th>${col.label}</th>`
+    : `<th style="cursor:pointer;" onclick="dtSort('${containerId}','${col.key}')">${col.label}${arrow(col.key)}</th>`
+  ).join('');
+  const filterCells = st.columns.map(col => {
+    if(!col.filterable) return '<th></th>';
+    const fid = `${containerId}-f-${col.key}`;
+    if(col.filterType === 'select'){
+      const opts = [...new Set(st.rows.map(r=>(col.filterValue?col.filterValue(r):r[col.key])||'').filter(Boolean))].sort();
+      return `<th><select id="${fid}" style="padding:4px 6px;font-size:12px;" onchange="dtFilter('${containerId}','${col.key}',this.value)"><option value="">Semua</option>${opts.map(o=>`<option value="${escapeHtml(o)}" ${st.filters[col.key]===o?'selected':''}>${escapeHtml(o)}</option>`).join('')}</select></th>`;
+    }
+    return `<th><input id="${fid}" style="padding:4px 6px;font-size:12px;" placeholder="Cari..." value="${escapeHtml(st.filters[col.key]||'')}" oninput="dtFilter('${containerId}','${col.key}',this.value)"></th>`;
+  }).join('');
+  const bodyHtml = filtered.length ? filtered.map(r=>`<tr>${st.columns.map(col=>`<td>${col.render?col.render(r):escapeHtml(r[col.key]||'-')}</td>`).join('')}</tr>`).join('')
+    : `<tr><td colspan="${st.columns.length}"><p class="note">${st.emptyMsg}</p></td></tr>`;
+
+  container.innerHTML = `
+    <div style="overflow-x:auto;">
+    <table>
+      <thead><tr>${headCells}</tr><tr>${filterCells}</tr></thead>
+      <tbody>${bodyHtml}</tbody>
+    </table>
+    </div>
+    <p class="note">${filtered.length} dari ${st.rows.length} data.</p>
+  `;
+  if(prevFocusedId){
+    const el = document.getElementById(prevFocusedId);
+    if(el){ el.focus(); if(prevCaret!==null && el.setSelectionRange) el.setSelectionRange(prevCaret, prevCaret); }
+  }
+}
+
 /* ---------- TEKNISI: input saran ---------- */
 let itemCount = 0;
 let masterData = null;
 async function loadMasterData(){
   if(masterData) return masterData;
   const md = await api('masterData');
-  masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[] };
+  masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[], Foreman:[] };
   return masterData;
 }
 function normalizeNoPolisi(el){
@@ -695,6 +762,7 @@ async function renderInputTeknisi(app){
   `;
   addJasaRow();
   addItemBlock();
+  if(currentTeknisi) setSelectValuePreserving(document.getElementById('teknisi'), currentTeknisi);
 }
 function toggleSSC(){
   const isYes = document.getElementById('sscTerlibat').value === 'Terlibat';
@@ -908,83 +976,21 @@ async function printTeknisiReport(idKunjungan, btn){
     if(btn){ btn.disabled = false; btn.textContent = 'Cetak Laporan (Draft)'; }
   }
 }
-let riwayatTeknisiState = { rows: [], search: '', status: '', sortKey: 'Tanggal_Masuk', sortDir: 'desc' };
 async function renderRiwayatTeknisi(app){
   if(!requireTeknisi(app)) return;
-  app.innerHTML = `<div class="card"><h3>Riwayat Saya</h3><div id="riwayatBody">Memuat...</div></div>`;
+  app.innerHTML = `<div class="card"><h3>Riwayat Saya</h3><div id="riwayatTeknisiTable">Memuat...</div></div>`;
   const rows = await api('listKunjungan');
-  const body = document.getElementById('riwayatBody');
-  if(!body) return;
-  if(rows.demo){ body.innerHTML = '<p class="note">Demo mode.</p>'; return; }
-  riwayatTeknisiState = { rows: rows.filter(r=>r.Teknisi===currentTeknisi), search: '', status: '', sortKey: 'Tanggal_Masuk', sortDir: 'desc' };
-  renderRiwayatTeknisiTable();
-}
-function setRiwayatTeknisiSort(key){
-  const st = riwayatTeknisiState;
-  if(st.sortKey === key) st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc';
-  else { st.sortKey = key; st.sortDir = 'asc'; }
-  renderRiwayatTeknisiTable();
-}
-function renderRiwayatTeknisiTable(){
-  const st = riwayatTeknisiState;
-  const body = document.getElementById('riwayatBody');
-  if(!body) return;
-  const searchElBefore = document.getElementById('riwayatTeknisiSearch');
-  const hadFocus = searchElBefore && document.activeElement === searchElBefore;
-  const caretPos = hadFocus ? searchElBefore.selectionStart : null;
-
-  let filtered = st.rows.filter(r=>{
-    const q = st.search.toLowerCase();
-    const matchesSearch = !q || (r.No_Polisi||'').toLowerCase().includes(q) || (r.Nama_Customer||'').toLowerCase().includes(q);
-    const matchesStatus = !st.status || r.Status === st.status;
-    return matchesSearch && matchesStatus;
-  });
-  filtered = sortRows(filtered, st.sortKey, st.sortDir);
-  const statuses = [...new Set(st.rows.map(r=>r.Status))];
-  const arrow = key => st.sortKey===key ? (st.sortDir==='asc' ? ' ▲' : ' ▼') : '';
-
-  body.innerHTML = `
-    <div class="row" style="margin-bottom:4px;">
-      <div><label>Cari</label><input id="riwayatTeknisiSearch" placeholder="No. Polisi atau Nama Customer" value="${escapeHtml(st.search)}"></div>
-      <div><label>Filter Status</label>
-        <select id="riwayatTeknisiStatus">
-          <option value="">Semua Status</option>
-          ${statuses.map(s=>`<option value="${escapeHtml(s)}" ${s===st.status?'selected':''}>${escapeHtml(s)}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div style="overflow-x:auto;">
-    <table>
-      <thead><tr>
-        <th style="cursor:pointer;" onclick="setRiwayatTeknisiSort('No_Polisi')">No. Polisi${arrow('No_Polisi')}</th>
-        <th style="cursor:pointer;" onclick="setRiwayatTeknisiSort('Nama_Customer')">Customer${arrow('Nama_Customer')}</th>
-        <th style="cursor:pointer;" onclick="setRiwayatTeknisiSort('Tanggal_Masuk')">Tanggal${arrow('Tanggal_Masuk')}</th>
-        <th style="cursor:pointer;" onclick="setRiwayatTeknisiSort('Tipe_Service')">Tipe Service${arrow('Tipe_Service')}</th>
-        <th style="cursor:pointer;" onclick="setRiwayatTeknisiSort('Status')">Status${arrow('Status')}</th>
-        <th></th>
-      </tr></thead>
-      <tbody>
-        ${filtered.length ? filtered.map(r=>`
-          <tr>
-            <td>${escapeHtml(r.No_Polisi)}</td>
-            <td>${escapeHtml(r.Nama_Customer)}</td>
-            <td>${r.Tanggal_Masuk ? toDateInputValue(r.Tanggal_Masuk) : '-'}</td>
-            <td>${escapeHtml(r.Tipe_Service||'-')}</td>
-            <td><span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span></td>
-            <td><button type="button" class="secondary" onclick="printTeknisiReport('${r.ID_Kunjungan}', this)">Cetak (Draft)</button></td>
-          </tr>`).join('') : `<tr><td colspan="6"><p class="note">Tidak ada data.</p></td></tr>`}
-      </tbody>
-    </table>
-    </div>
-    <p class="note">${filtered.length} dari ${st.rows.length} kunjungan.</p>
-  `;
-  document.getElementById('riwayatTeknisiSearch').addEventListener('input', e=>{ st.search = e.target.value; renderRiwayatTeknisiTable(); });
-  document.getElementById('riwayatTeknisiStatus').addEventListener('change', e=>{ st.status = e.target.value; renderRiwayatTeknisiTable(); });
-  if(hadFocus){
-    const el = document.getElementById('riwayatTeknisiSearch');
-    el.focus();
-    el.setSelectionRange(caretPos, caretPos);
-  }
+  if(!document.getElementById('riwayatTeknisiTable')) return;
+  if(rows.demo){ document.getElementById('riwayatTeknisiTable').innerHTML = '<p class="note">Demo mode.</p>'; return; }
+  const mine = rows.filter(r=>r.Teknisi===currentTeknisi);
+  dtInit('riwayatTeknisiTable', mine, [
+    { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
+    { key:'Nama_Customer', label:'Customer', filterable:true, filterType:'text' },
+    { key:'Tanggal_Masuk', label:'Tanggal', filterable:false, render:r=>r.Tanggal_Masuk?toDateInputValue(r.Tanggal_Masuk):'-' },
+    { key:'Tipe_Service', label:'Tipe Service', filterable:true, filterType:'select' },
+    { key:'Status', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span>` },
+    { key:'aksi', label:'', sortable:false, filterable:false, render:r=>`<button type="button" class="secondary" onclick="printTeknisiReport('${r.ID_Kunjungan}', this)">Cetak (Draft)</button>` }
+  ], 'Tanggal_Masuk');
 }
 
 /* ---------- FOREMAN: lengkapi & edit antrian ---------- */
@@ -1087,7 +1093,7 @@ async function openForemanEdit(id){
 
   <div class="card" style="margin-top:16px;">
     <label class="req">Nama Foreman</label>
-    <input id="namaForeman" placeholder="Nama Anda">
+    <select id="namaForeman">${optionList(md.Foreman)}</select>
     <p class="note">Klik tombol di bawah untuk menyimpan seluruh perubahan lalu mengirim report ke Service Advisor.</p>
     <button class="primary" onclick="finishAndGenerate(this)">Kirim ke SA</button>
   </div>
@@ -1109,7 +1115,9 @@ async function openForemanEdit(id){
     kj.SSC_Terlibat === 'No' ? 'Tidak Terlibat' :
     (kj.SSC_Terlibat || 'Tidak Terlibat');
   toggleSSC();
-  document.getElementById('namaForeman').value = kj.Nama_Foreman || '';
+  // Default ke Foreman yang sedang login (belum pernah difinalisasi Foreman lain
+  // sebelumnya) - kalau sudah pernah, pertahankan nama yang tercatat.
+  setSelectValuePreserving(document.getElementById('namaForeman'), kj.Nama_Foreman || currentForeman);
 
   (detail.itemsJasa||[]).forEach(it=>addForemanJasaRow(it));
   (detail.items||[]).forEach(it=>addForemanPartRow(it));
@@ -1344,83 +1352,21 @@ async function finishAndGenerate(btn){
     if(btn){ btn.disabled = false; btn.textContent = 'Kirim ke SA'; }
   }
 }
-let riwayatForemanState = { rows: [], search: '', status: '', sortKey: 'Tanggal_Masuk', sortDir: 'desc' };
 async function renderRiwayatForeman(app){
   if(!requireForeman(app)) return;
-  app.innerHTML = `<div class="card"><h3>Riwayat</h3><div id="riwayatForemanBody">Memuat...</div></div>`;
+  app.innerHTML = `<div class="card"><h3>Riwayat</h3><div id="riwayatForemanTable">Memuat...</div></div>`;
   const rows = await api('listKunjungan');
-  const body = document.getElementById('riwayatForemanBody');
-  if(!body) return;
-  if(rows.demo){ body.innerHTML = '<p class="note">Demo mode.</p>'; return; }
-  riwayatForemanState = { rows: rows.filter(r=>r.Nama_Foreman===currentForeman), search: '', status: '', sortKey: 'Tanggal_Masuk', sortDir: 'desc' };
-  renderRiwayatForemanTable();
-}
-function setRiwayatForemanSort(key){
-  const st = riwayatForemanState;
-  if(st.sortKey === key) st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc';
-  else { st.sortKey = key; st.sortDir = 'asc'; }
-  renderRiwayatForemanTable();
-}
-function renderRiwayatForemanTable(){
-  const st = riwayatForemanState;
-  const body = document.getElementById('riwayatForemanBody');
-  if(!body) return;
-  const searchElBefore = document.getElementById('riwayatForemanSearch');
-  const hadFocus = searchElBefore && document.activeElement === searchElBefore;
-  const caretPos = hadFocus ? searchElBefore.selectionStart : null;
-
-  let filtered = st.rows.filter(r=>{
-    const q = st.search.toLowerCase();
-    const matchesSearch = !q || (r.No_Polisi||'').toLowerCase().includes(q) || (r.Nama_Customer||'').toLowerCase().includes(q);
-    const matchesStatus = !st.status || r.Status === st.status;
-    return matchesSearch && matchesStatus;
-  });
-  filtered = sortRows(filtered, st.sortKey, st.sortDir);
-  const statuses = [...new Set(st.rows.map(r=>r.Status))];
-  const arrow = key => st.sortKey===key ? (st.sortDir==='asc' ? ' ▲' : ' ▼') : '';
-
-  body.innerHTML = `
-    <div class="row" style="margin-bottom:4px;">
-      <div><label>Cari</label><input id="riwayatForemanSearch" placeholder="No. Polisi atau Nama Customer" value="${escapeHtml(st.search)}"></div>
-      <div><label>Filter Status</label>
-        <select id="riwayatForemanStatus">
-          <option value="">Semua Status</option>
-          ${statuses.map(s=>`<option value="${escapeHtml(s)}" ${s===st.status?'selected':''}>${escapeHtml(s)}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div style="overflow-x:auto;">
-    <table>
-      <thead><tr>
-        <th style="cursor:pointer;" onclick="setRiwayatForemanSort('No_Polisi')">No. Polisi${arrow('No_Polisi')}</th>
-        <th style="cursor:pointer;" onclick="setRiwayatForemanSort('Nama_Customer')">Customer${arrow('Nama_Customer')}</th>
-        <th style="cursor:pointer;" onclick="setRiwayatForemanSort('Tanggal_Masuk')">Tanggal${arrow('Tanggal_Masuk')}</th>
-        <th style="cursor:pointer;" onclick="setRiwayatForemanSort('SA')">SA${arrow('SA')}</th>
-        <th style="cursor:pointer;" onclick="setRiwayatForemanSort('Status')">Status${arrow('Status')}</th>
-        <th></th>
-      </tr></thead>
-      <tbody>
-        ${filtered.length ? filtered.map(r=>`
-          <tr>
-            <td>${escapeHtml(r.No_Polisi)}</td>
-            <td>${escapeHtml(r.Nama_Customer)}</td>
-            <td>${r.Tanggal_Masuk ? toDateInputValue(r.Tanggal_Masuk) : '-'}</td>
-            <td>${escapeHtml(r.SA||'-')}</td>
-            <td><span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span></td>
-            <td>${r.PDF_URL ? `<a href="${r.PDF_URL}" target="_blank">Buka PDF Report</a>` : '-'}</td>
-          </tr>`).join('') : `<tr><td colspan="6"><p class="note">Tidak ada data.</p></td></tr>`}
-      </tbody>
-    </table>
-    </div>
-    <p class="note">${filtered.length} dari ${st.rows.length} kunjungan.</p>
-  `;
-  document.getElementById('riwayatForemanSearch').addEventListener('input', e=>{ st.search = e.target.value; renderRiwayatForemanTable(); });
-  document.getElementById('riwayatForemanStatus').addEventListener('change', e=>{ st.status = e.target.value; renderRiwayatForemanTable(); });
-  if(hadFocus){
-    const el = document.getElementById('riwayatForemanSearch');
-    el.focus();
-    el.setSelectionRange(caretPos, caretPos);
-  }
+  if(!document.getElementById('riwayatForemanTable')) return;
+  if(rows.demo){ document.getElementById('riwayatForemanTable').innerHTML = '<p class="note">Demo mode.</p>'; return; }
+  const mine = rows.filter(r=>r.Nama_Foreman===currentForeman);
+  dtInit('riwayatForemanTable', mine, [
+    { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
+    { key:'Nama_Customer', label:'Customer', filterable:true, filterType:'text' },
+    { key:'Tanggal_Masuk', label:'Tanggal', filterable:false, render:r=>r.Tanggal_Masuk?toDateInputValue(r.Tanggal_Masuk):'-' },
+    { key:'SA', label:'SA', filterable:true, filterType:'select' },
+    { key:'Status', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span>` },
+    { key:'aksi', label:'', sortable:false, filterable:false, render:r=>r.PDF_URL?`<a href="${r.PDF_URL}" target="_blank">Buka PDF Report</a>`:'-' }
+  ], 'Tanggal_Masuk');
 }
 
 /* ---------- SA: konfirmasi jadwal, follow up & laporan ---------- */
@@ -1527,15 +1473,20 @@ async function saveFollowUp(id){
 }
 async function renderLaporan(app){
   if(!requireSA(app)) return;
-  app.innerHTML = `<div class="card"><h3>Kunjungan Siap Dikirim ke Customer</h3><div id="list">Memuat...</div></div>`;
+  app.innerHTML = `<div class="card"><h3>Kunjungan Siap Dikirim ke Customer</h3><div id="laporanTable">Memuat...</div></div>`;
   const rows = await api('listKunjungan');
-  const list = document.getElementById('list');
-  if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
+  if(!document.getElementById('laporanTable')) return;
+  if(rows.demo){ document.getElementById('laporanTable').innerHTML = '<p class="note">Demo mode.</p>'; return; }
   const mine = rows.filter(r=>r.SA===currentSA);
-  list.innerHTML = mine.map(r=>`
-    <div class="item-block">${escapeHtml(r.No_Polisi)} - ${escapeHtml(r.Nama_Customer)}
-    <span class="badge sent">${r.Status}</span>
-    ${r.PDF_URL ? `<br><a href="${r.PDF_URL}" target="_blank">Buka PDF Report</a>` : ''}</div>`).join('');
+  dtInit('laporanTable', mine, [
+    { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
+    { key:'Nama_Customer', label:'Customer', filterable:true, filterType:'text' },
+    { key:'Tanggal_Masuk', label:'Tanggal', filterable:false, render:r=>r.Tanggal_Masuk?toDateInputValue(r.Tanggal_Masuk):'-' },
+    { key:'Tipe_Service', label:'Tipe Service', filterable:true, filterType:'select' },
+    { key:'Teknisi', label:'Teknisi', filterable:true, filterType:'select' },
+    { key:'Status', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span>` },
+    { key:'aksi', label:'', sortable:false, filterable:false, render:r=>r.PDF_URL?`<a href="${r.PDF_URL}" target="_blank">Buka PDF Report</a>`:'-' }
+  ], 'Tanggal_Masuk');
 }
 
 /* ---------- KEPALA BENGKEL: dashboard ---------- */
