@@ -1520,6 +1520,7 @@ function dealBelumDatangCardHtml(r){
       <button type="button" class="primary" onclick="saveKedatangan('${r.ID_Kunjungan}')">Simpan Kedatangan</button>
     </div>`;
 }
+let followUpState = { filter: null };
 async function renderFollowUp(app){
   if(!requireSA(app)) return;
   app.innerHTML = `<div class="card"><h3>Follow Up Customer</h3><div id="list">Memuat...</div></div>`;
@@ -1535,24 +1536,58 @@ async function renderFollowUp(app){
   const overdueList = pending.filter(r=>rencanaStr(r) && rencanaStr(r) < todayStr);
   const upcomingList = pending.filter(r=>rencanaStr(r) && rencanaStr(r) > todayStr);
   const dealBelumDatang = mine.filter(r=>r.Status_FollowUp === 'Deal - Belum Datang');
-  const dealThisWeek = mine.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang' && isThisWeek(r.Tanggal_Kedatangan_Aktual)).length;
+  const dealMingguList = mine.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang' && isThisWeek(r.Tanggal_Kedatangan_Aktual));
 
+  followUpState.filter = null;
   list.innerHTML = `
     <div class="kpi" style="margin-bottom:22px;">
-      <div class="box warning"><div class="num">${todayList.length}</div><div class="lbl">Perlu Follow Up Hari Ini</div></div>
-      <div class="box"><div class="num">${overdueList.length}</div><div class="lbl">Lewat Jatuh Tempo</div></div>
-      <div class="box info"><div class="num">${dealBelumDatang.length}</div><div class="lbl">Deal Belum Datang</div></div>
-      <div class="box success"><div class="num">${dealThisWeek}</div><div class="lbl">Deal Minggu Ini</div></div>
+      <div class="box warning filterable" data-key="hari" onclick="setFollowUpFilter('hari')"><div class="num">${todayList.length}</div><div class="lbl">Perlu Follow Up Hari Ini</div></div>
+      <div class="box filterable" data-key="overdue" onclick="setFollowUpFilter('overdue')"><div class="num">${overdueList.length}</div><div class="lbl">Lewat Jatuh Tempo</div></div>
+      <div class="box info filterable" data-key="dealBelumDatang" onclick="setFollowUpFilter('dealBelumDatang')"><div class="num">${dealBelumDatang.length}</div><div class="lbl">Deal Belum Datang</div></div>
+      <div class="box success filterable" data-key="dealMinggu" onclick="setFollowUpFilter('dealMinggu')"><div class="num">${dealMingguList.length}</div><div class="lbl">Deal Minggu Ini</div></div>
     </div>
-    <h4>Perlu Follow Up Hari Ini (${todayList.length})</h4>
-    ${todayList.length ? todayList.map(r=>pendingFollowUpCardHtml(r,'Hari Ini','wait')).join('') : '<p class="note">Tidak ada.</p>'}
-    <h4 style="margin-top:22px;">Sudah Lewat Jatuh Tempo (${overdueList.length})</h4>
-    ${overdueList.length ? overdueList.map(r=>pendingFollowUpCardHtml(r,'Lewat Jatuh Tempo','overdue')).join('') : '<p class="note">Tidak ada.</p>'}
-    <h4 style="margin-top:22px;">Deal - Belum Datang (${dealBelumDatang.length})</h4>
-    ${dealBelumDatang.length ? dealBelumDatang.map(dealBelumDatangCardHtml).join('') : '<p class="note">Tidak ada.</p>'}
-    <h4 style="margin-top:22px;">Belum Jatuh Tempo (${upcomingList.length})</h4>
-    ${upcomingList.length ? upcomingList.map(r=>pendingFollowUpCardHtml(r,'Belum Jatuh Tempo','wait')).join('') : '<p class="note">Tidak ada.</p>'}
+    <p class="note">Klik salah satu kartu di atas untuk memfilter daftar di bawah; klik lagi kartu yang sama untuk menampilkan semua.</p>
+    <div class="fu-section" data-section="hari">
+      <h4>Perlu Follow Up Hari Ini (${todayList.length})</h4>
+      ${todayList.length ? todayList.map(r=>pendingFollowUpCardHtml(r,'Hari Ini','wait')).join('') : '<p class="note">Tidak ada.</p>'}
+    </div>
+    <div class="fu-section" data-section="overdue">
+      <h4 style="margin-top:22px;">Sudah Lewat Jatuh Tempo (${overdueList.length})</h4>
+      ${overdueList.length ? overdueList.map(r=>pendingFollowUpCardHtml(r,'Lewat Jatuh Tempo','overdue')).join('') : '<p class="note">Tidak ada.</p>'}
+    </div>
+    <div class="fu-section" data-section="dealBelumDatang">
+      <h4 style="margin-top:22px;">Deal - Belum Datang (${dealBelumDatang.length})</h4>
+      ${dealBelumDatang.length ? dealBelumDatang.map(dealBelumDatangCardHtml).join('') : '<p class="note">Tidak ada.</p>'}
+    </div>
+    <div class="fu-section" data-section="dealMinggu">
+      <h4 style="margin-top:22px;">Deal - Sudah Datang Minggu Ini (${dealMingguList.length})</h4>
+      ${dealMingguList.length ? dealMingguList.map(sudahDatangCardHtml).join('') : '<p class="note">Tidak ada.</p>'}
+    </div>
+    <div class="fu-section" data-section="upcoming">
+      <h4 style="margin-top:22px;">Belum Jatuh Tempo (${upcomingList.length})</h4>
+      ${upcomingList.length ? upcomingList.map(r=>pendingFollowUpCardHtml(r,'Belum Jatuh Tempo','wait')).join('') : '<p class="note">Tidak ada.</p>'}
+    </div>
   `;
+}
+function setFollowUpFilter(key){
+  followUpState.filter = (followUpState.filter === key) ? null : key;
+  const activeKey = followUpState.filter;
+  [...document.querySelectorAll('.kpi .box.filterable')].forEach(b=>{
+    b.classList.toggle('active', b.dataset.key === activeKey);
+  });
+  [...document.querySelectorAll('.fu-section')].forEach(sec=>{
+    sec.style.display = (!activeKey || sec.dataset.section === activeKey) ? '' : 'none';
+  });
+}
+function sudahDatangCardHtml(r){
+  const wa = waLink(r.No_HP_Customer);
+  return `
+    <div class="item-block">
+      <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
+      ${r.No_HP_Customer ? (wa ? ` (<a href="${wa}" target="_blank">${escapeHtml(r.No_HP_Customer)} - Chat WA</a>)` : ` (${escapeHtml(r.No_HP_Customer)})`) : ''}
+      <span class="badge sent">Deal - Sudah Datang</span>
+      <div class="note">Tanggal kedatangan: ${r.Tanggal_Kedatangan_Aktual?toDateInputValue(r.Tanggal_Kedatangan_Aktual):'-'}${r.Nomor_PKB?' - PKB: '+escapeHtml(r.Nomor_PKB):''}</div>
+    </div>`;
 }
 async function saveFollowUpDate(id){
   const val = document.getElementById('tgl-'+id).value;
