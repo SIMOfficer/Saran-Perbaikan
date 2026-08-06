@@ -47,7 +47,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v32-text-field-format-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v33-dashboard-perf-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -751,6 +751,20 @@ function getDashboard(params) {
   const startOfWeek = new Date(startOfDay.getTime() - startOfDay.getDay() * 86400000);
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
+  // Hitung jumlah Item_Saran per kunjungan SEKALI di sini (bukan getKunjunganDetail per
+  // baris seperti sebelumnya, yang re-read seluruh sheet Item_* untuk TIAP kunjungan -
+  // O(n) pemanggilan penuh, sangat lambat begitu data bertambah banyak).
+  const itemSh = getSheet('Item_Saran');
+  const itemData = itemSh.getDataRange().getValues();
+  const itemHeader = itemData[0];
+  const itemKunjunganCol = itemHeader.indexOf('ID_Kunjungan');
+  const itemCountMap = {};
+  for (let i = 1; i < itemData.length; i++) {
+    const kid = itemData[i][itemKunjunganCol];
+    if (!kid) continue;
+    itemCountMap[kid] = (itemCountMap[kid] || 0) + 1;
+  }
+
   const bySA = {};
   let totalCustomerHariIni = 0, totalCustomerMingguIni = 0, totalCustomerBulanIni = 0;
 
@@ -760,8 +774,7 @@ function getDashboard(params) {
     if (!bySA[sa]) bySA[sa] = { hari: 0, minggu: 0, bulan: 0, customerHari: 0, customerMinggu: 0, customerBulan: 0, deal: 0, tidakDeal: 0 };
 
     // hitung jumlah item saran per kunjungan untuk agregasi "berapa yang disarankan"
-    const detail = getKunjunganDetail(r.ID_Kunjungan);
-    const jumlahItem = detail.items ? detail.items.length : 0;
+    const jumlahItem = itemCountMap[r.ID_Kunjungan] || 0;
 
     if (tgl >= startOfDay) { bySA[sa].hari += jumlahItem; bySA[sa].customerHari++; totalCustomerHariIni++; }
     if (tgl >= startOfWeek) { bySA[sa].minggu += jumlahItem; bySA[sa].customerMinggu++; totalCustomerMingguIni++; }

@@ -127,6 +127,9 @@
   .row-remove{background:none;border:none;color:var(--primary-600);font-size:18px;line-height:1;cursor:pointer;padding:4px 8px;margin:0;}
   .kpi{display:flex;gap:16px;flex-wrap:wrap;}
   .kpi .box{flex:1;min-width:150px;background:var(--surface-card);border-radius:var(--radius-xl);padding:16px;text-align:center;box-shadow:var(--ring-card),var(--shadow-sm);}
+  .kpi .box.filterable{cursor:pointer;user-select:none;transition:box-shadow .15s;}
+  .kpi .box.filterable:hover{box-shadow:0 0 0 2px var(--gray-300);}
+  .kpi .box.filterable.active{box-shadow:0 0 0 2px var(--primary-500);}
   .kpi .box .num{font-size:26px;font-weight:700;color:var(--primary-600);}
   .kpi .box.warning .num{color:var(--warning-600);}
   .kpi .box.success .num{color:var(--success-600);}
@@ -1610,24 +1613,54 @@ async function renderLaporan(app){
 }
 
 /* ---------- KEPALA BENGKEL: dashboard ---------- */
+let dashboardState = { rows: [], filter: 'total' };
 async function renderDashboard(app){
   app.innerHTML = `<div id="dash">Memuat...</div>`;
-  const d = await api('dashboard');
+  const [d, rows] = await Promise.all([api('dashboard'), api('listKunjungan')]);
   const dash = document.getElementById('dash');
-  if(d.demo){ dash.innerHTML='<p class="note">Demo mode - hubungkan API untuk data real.</p>'; return; }
-  let html = `<div class="kpi">
-    <div class="box"><div class="num">${d.totalCustomer.hariIni}</div><div class="lbl">Customer Hari Ini</div></div>
-    <div class="box"><div class="num">${d.totalCustomer.mingguIni}</div><div class="lbl">Customer Minggu Ini</div></div>
-    <div class="box"><div class="num">${d.totalCustomer.bulanIni}</div><div class="lbl">Customer Bulan Ini</div></div>
-    <div class="box"><div class="num">${d.totalKunjungan}</div><div class="lbl">Total Kunjungan</div></div>
+  if(!dash) return;
+  if(d.demo || rows.demo){ dash.innerHTML='<p class="note">Demo mode - hubungkan API untuk data real.</p>'; return; }
+  dashboardState = { rows, filter: 'total' };
+  let html = `<div class="kpi" style="margin-bottom:16px;">
+    <div class="box filterable active" data-key="total" onclick="setDashboardFilter('total')"><div class="num">${d.totalKunjungan}</div><div class="lbl">Total Kunjungan</div></div>
+    <div class="box filterable" data-key="hari" onclick="setDashboardFilter('hari')"><div class="num">${d.totalCustomer.hariIni}</div><div class="lbl">Customer Hari Ini</div></div>
+    <div class="box filterable" data-key="minggu" onclick="setDashboardFilter('minggu')"><div class="num">${d.totalCustomer.mingguIni}</div><div class="lbl">Customer Minggu Ini</div></div>
+    <div class="box filterable" data-key="bulan" onclick="setDashboardFilter('bulan')"><div class="num">${d.totalCustomer.bulanIni}</div><div class="lbl">Customer Bulan Ini</div></div>
   </div>
   <div class="card"><h3>Rekap per Service Advisor</h3>
   <table><tr><th>SA</th><th>Saran Hari Ini</th><th>Saran Minggu Ini</th><th>Saran Bulan Ini</th><th>Deal</th><th>Tidak Deal</th></tr>`;
   Object.entries(d.perSA).forEach(([sa,v])=>{
-    html += `<tr><td>${sa}</td><td>${v.hari}</td><td>${v.minggu}</td><td>${v.bulan}</td><td>${v.deal}</td><td>${v.tidakDeal}</td></tr>`;
+    html += `<tr><td>${escapeHtml(sa)}</td><td>${v.hari}</td><td>${v.minggu}</td><td>${v.bulan}</td><td>${v.deal}</td><td>${v.tidakDeal}</td></tr>`;
   });
-  html += `</table></div>`;
+  html += `</table></div>
+  <div class="card"><h3>Daftar Kunjungan</h3><p class="note">Klik salah satu kartu di atas untuk memfilter tabel ini; klik lagi kartu yang sama untuk menampilkan semua.</p><div id="dashboardTable"></div></div>`;
   dash.innerHTML = html;
+  renderDashboardTable();
+}
+function setDashboardFilter(key){
+  dashboardState.filter = (dashboardState.filter === key && key !== 'total') ? 'total' : key;
+  const activeKey = dashboardState.filter;
+  [...document.querySelectorAll('.kpi .box.filterable')].forEach(b=>{
+    b.classList.toggle('active', b.dataset.key === activeKey);
+  });
+  renderDashboardTable();
+}
+function renderDashboardTable(){
+  if(!document.getElementById('dashboardTable')) return;
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfWeek = new Date(startOfDay.getTime() - startOfDay.getDay()*86400000);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const threshold = { hari: startOfDay, minggu: startOfWeek, bulan: startOfMonth, total: null }[dashboardState.filter];
+  const filtered = threshold ? dashboardState.rows.filter(r=>new Date(r.Tanggal_Masuk) >= threshold) : dashboardState.rows;
+  dtInit('dashboardTable', filtered, [
+    { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
+    { key:'Nama_Customer', label:'Customer', filterable:true, filterType:'text' },
+    { key:'Tanggal_Masuk', label:'Tanggal', filterable:false, render:r=>r.Tanggal_Masuk?toDateInputValue(r.Tanggal_Masuk):'-' },
+    { key:'SA', label:'SA', filterable:true, filterType:'select' },
+    { key:'Teknisi', label:'Teknisi', filterable:true, filterType:'select' },
+    { key:'Status', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span>` }
+  ], 'Tanggal_Masuk');
 }
 async function renderSemua(app){
   app.innerHTML = `<div class="card"><h3>Semua Kunjungan</h3><div id="list">Memuat...</div></div>`;
