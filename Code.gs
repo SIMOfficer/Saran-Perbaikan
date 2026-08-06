@@ -18,10 +18,15 @@
  * H: Teknisi
  * I: Status  (Menunggu Foreman / Siap Report / Report Terkirim / Follow Up / Deal / Tidak Deal)
  * J: PDF_URL
- * K: Tanggal_FollowUp_Rencana  (otomatis = Tanggal_Masuk + 3 hari)
- * L: Status_FollowUp  (Belum / Deal / Tidak Deal / Reschedule)
+ * K: Tanggal_FollowUp_Rencana  (otomatis = Tanggal_Masuk + 3 hari, digeser +14 hari tiap Tidak Deal)
+ * L: Status_FollowUp  (Belum / Tidak Deal / Deal - Belum Datang / Deal - Sudah Datang)
  * M: Catatan_FollowUp
  * N: Tanggal_FollowUp_Aktual
+ * ... (kolom-kolom lain: lihat HEADERS.Kunjungan di bawah - daftar ini tidak diperbarui
+ *      untuk tiap kolom baru, HEADERS adalah sumber kebenaran)
+ * Perlu_FollowUp  (Ya/Tidak - dihitung saat Foreman kirim report: ada saran Jasa/Parts atau tidak)
+ * Alasan_Tidak_Deal, Tanggal_Rencana_Datang, Jam_Rencana_Datang,
+ * Tanggal_Kedatangan_Aktual, Nomor_PKB  (alur follow up SA, lihat updateRow dari frontend)
  *
  * SHEET "Item_Saran" (1 baris = 1 komponen yang disarankan)
  * A: ID_Item
@@ -42,7 +47,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v30-foreman-masterdata'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v32-text-field-format-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -59,7 +64,9 @@ const HEADERS = {
     'Mobil_Hybrid','SBE_50K_100K','Mobil_2_5_Tahun','HHC','HHC_Hasil',
     'SSC_Terlibat',
     'UjiEmisi_Status','UjiEmisi_Foto_URL',
-    'Nama_Foreman','FollowUp_Dikonfirmasi'],
+    'Nama_Foreman','FollowUp_Dikonfirmasi',
+    'Perlu_FollowUp','Alasan_Tidak_Deal','Tanggal_Rencana_Datang','Jam_Rencana_Datang',
+    'Tanggal_Kedatangan_Aktual','Nomor_PKB'],
   // "Nama Parts" di Saran Perbaikan - Harga_Satuan_Teknisi adalah estimasi harga part dari
   // Teknisi sendiri saat input awal, terpisah dari Estimasi_Harga yang diisi Partman belakangan.
   Item_Saran: ['ID_Item','ID_Kunjungan','Nama_Komponen','Qty','Keterangan_Teknisi',
@@ -245,6 +252,9 @@ function updateKunjungan(body) {
  *  Dipakai Foreman untuk full-edit Item_Saran/Item_Jasa/dst tanpa perlu fungsi
  *  update terpisah per sheet. sheetName divalidasi terhadap HEADERS supaya
  *  tidak bisa dipakai untuk menyentuh sheet sembarangan. */
+// Kolom yang HARUS disimpan sebagai teks polos, bukan dibiarkan Sheets auto-parse
+// (mis. "14:00" berubah jadi serial waktu 1899, atau "01234" kehilangan leading zero).
+const TEXT_ONLY_FIELDS = ['Jam_Rencana_Datang', 'Nomor_PKB'];
 function updateRowByField(sheetName, idValue, fields) {
   if (!HEADERS[sheetName]) return { error: 'Sheet tidak dikenal: ' + sheetName };
   if (!idValue || !fields) return { error: 'id dan fields wajib diisi' };
@@ -255,7 +265,10 @@ function updateRowByField(sheetName, idValue, fields) {
     if (data[r][0] === idValue) {
       Object.keys(fields).forEach(key => {
         const col = header.indexOf(key);
-        if (col !== -1) sh.getRange(r + 1, col + 1).setValue(fields[key]);
+        if (col === -1) return;
+        const range = sh.getRange(r + 1, col + 1);
+        if (TEXT_ONLY_FIELDS.indexOf(key) !== -1) range.setNumberFormat('@');
+        range.setValue(fields[key]);
       });
       return { success: true };
     }
@@ -697,11 +710,16 @@ function generateReport(idKunjungan, namaForeman, printedBy) {
     const statusCol = header.indexOf('Status');
     const pdfCol = header.indexOf('PDF_URL');
     const foremanCol = header.indexOf('Nama_Foreman');
+    const perluFollowUpCol = header.indexOf('Perlu_FollowUp');
+    // Kalau Teknisi/Foreman tidak menyarankan Jasa maupun Parts sama sekali,
+    // kunjungan ini tidak perlu masuk alur follow up SA.
+    const perluFollowUp = (itemsJasa.length + items.length) > 0 ? 'Ya' : 'Tidak';
     for (let r = 1; r < data.length; r++) {
       if (data[r][0] === idKunjungan) {
         sh.getRange(r + 1, statusCol + 1).setValue('Report Terkirim');
         sh.getRange(r + 1, pdfCol + 1).setValue(pdfFile.getUrl());
         if (foremanCol !== -1 && namaForeman) sh.getRange(r + 1, foremanCol + 1).setValue(namaForeman);
+        if (perluFollowUpCol !== -1) sh.getRange(r + 1, perluFollowUpCol + 1).setValue(perluFollowUp);
         break;
       }
     }
@@ -749,7 +767,7 @@ function getDashboard(params) {
     if (tgl >= startOfWeek) { bySA[sa].minggu += jumlahItem; bySA[sa].customerMinggu++; totalCustomerMingguIni++; }
     if (tgl >= startOfMonth) { bySA[sa].bulan += jumlahItem; bySA[sa].customerBulan++; totalCustomerBulanIni++; }
 
-    if (r.Status_FollowUp === 'Deal') bySA[sa].deal++;
+    if (r.Status_FollowUp === 'Deal - Belum Datang' || r.Status_FollowUp === 'Deal - Sudah Datang') bySA[sa].deal++;
     if (r.Status_FollowUp === 'Tidak Deal') bySA[sa].tidakDeal++;
   });
 
