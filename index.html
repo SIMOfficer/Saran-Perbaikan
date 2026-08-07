@@ -1435,20 +1435,80 @@ function addDaysISO(dateStr, days){
   return toDateInputValue(d);
 }
 // Nomor HP customer -> link WhatsApp click-to-chat (08xx/+62xx/62xx semua dinormalisasi ke 62xx)
-function waLink(phone, r){
+function waLink(phone, message){
   if(!phone) return '';
   let p = String(phone).replace(/[^0-9]/g,'');
   if(!p) return '';
   if(p.startsWith('0')) p = '62' + p.slice(1);
   else if(!p.startsWith('62')) p = '62' + p;
   let url = 'https://wa.me/' + p;
-  if(r) url += '?text=' + encodeURIComponent(waDefaultMessage(r));
+  if(message) url += '?text=' + encodeURIComponent(message);
   return url;
 }
-function waDefaultMessage(r){
-  const nama = r.Nama_Customer || 'Bapak/Ibu';
-  const noPolisi = r.No_Polisi || '';
-  return `Selamat siang ${nama}, kami dari Daya Toyota Bekasi ingin follow up mengenai kendaraan ${noPolisi} yang sebelumnya melakukan servis di bengkel kami. Apakah Bapak/Ibu berkenan untuk melakukan servis lanjutan sesuai saran perbaikan dari tim kami?`;
+function formatRupiah(n){
+  return 'Rp ' + (Number(n)||0).toLocaleString('id-ID');
+}
+function formatTanggalIndo(dateVal){
+  const iso = toDateInputValue(dateVal);
+  if(!iso) return '-';
+  const [y,m,d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+// Template pesan follow up WA - lihat "Template Chat WA.md" dari SGA (rincian jasa/part +
+// total estimasi + diskon booking 10%), bukan pesan generik. Butuh detail Item_Jasa/Item_Saran
+// yang tidak ikut terbawa di listKunjungan(), makanya di-fetch on-demand saat tombol diklik.
+function buildFollowUpWaMessage(kj, itemsJasa, items){
+  const nama = kj.Nama_Customer || 'Bapak/Ibu';
+  const tglService = formatTanggalIndo(kj.Tanggal_Masuk);
+  const jasaLines = (itemsJasa||[]).filter(j=>j.Nama_Jasa).map(j=>`*${j.Nama_Jasa}* - *${formatRupiah(j.Harga_Satuan)}*`);
+  const totalJasa = (itemsJasa||[]).reduce((s,j)=>s+(Number(j.Harga_Satuan)||0), 0);
+  const hargaPart = it => Number(it.Estimasi_Harga) || Number(it.Harga_Satuan_Teknisi) || 0;
+  const partLines = (items||[]).filter(it=>it.Nama_Komponen).map(it=>{
+    const qty = Number(it.Qty) || 0;
+    return `*${it.Nama_Komponen}* - *${qty}* - *${formatRupiah(hargaPart(it))}* - *${formatRupiah(hargaPart(it)*qty)}*`;
+  });
+  const totalPart = (items||[]).reduce((s,it)=>s+hargaPart(it)*(Number(it.Qty)||0), 0);
+  const totalEstimasi = totalJasa + totalPart;
+
+  return [
+    `Selamat pagi Bpk/Ibu *${nama}*`,
+    '',
+    `Kami dari Daya Toyota Bekasi, mengingatkan kembali saran perbaikan pada saat service *${tglService}* dengan rincian sbb :`,
+    '',
+    jasaLines.length ? jasaLines.join('\n') : '-',
+    '',
+    partLines.length ? partLines.join('\n') : '-',
+    '',
+    `*Total Estimasi Harga: ${formatRupiah(totalEstimasi)}*`,
+    '',
+    '',
+    `Special untuk Bpk/Ibu *${nama}*, kami berikan *Diskon Jasa 10%* jika melakukan booking.`,
+    '',
+    'Jika berkenan melakukan booking untuk perbaikan *silahkan menghubungi saya di nomor ini*.',
+    '',
+    'Terima Kasih',
+    '',
+    '',
+    'Salam Hangat',
+    '',
+    `*${currentSA || '-'}*`,
+    '',
+    'Service Advisor'
+  ].join('\n');
+}
+async function openFollowUpWA(id){
+  const win = window.open('', '_blank');
+  const detail = await api('getKunjungan','GET',{id});
+  const kj = detail && detail.kunjungan;
+  if(!kj || !kj.No_HP_Customer){
+    if(win) win.close();
+    alert('Nomor HP customer tidak tersedia');
+    return;
+  }
+  const msg = buildFollowUpWaMessage(kj, detail.itemsJasa||[], detail.items||[]);
+  const wa = waLink(kj.No_HP_Customer, msg);
+  if(win) win.location = wa;
+  else window.open(wa, '_blank');
 }
 async function toggleFollowUpDetail(id, btn){
   const box = document.getElementById('detail-'+id);
@@ -1480,11 +1540,10 @@ function toggleFollowUpOutcome(id, selectEl){
   if(dealBlock) dealBlock.style.display = status === 'Deal' ? '' : 'none';
 }
 function pendingFollowUpCardHtml(r, badgeLabel, badgeClass){
-  const wa = waLink(r.No_HP_Customer, r);
   return `
     <div class="item-block">
       <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
-      ${r.No_HP_Customer ? (wa ? ` (<a href="${wa}" target="_blank">${escapeHtml(r.No_HP_Customer)} - Chat WA</a>)` : ` (${escapeHtml(r.No_HP_Customer)})`) : ''}
+      ${r.No_HP_Customer ? ` (${escapeHtml(r.No_HP_Customer)} - <a href="#" onclick="openFollowUpWA('${r.ID_Kunjungan}'); return false;">Chat WA</a>)` : ''}
       <span class="badge ${badgeClass}">${badgeLabel}</span>
       ${r.Status_FollowUp==='Tidak Deal' ? `<div class="note">Percobaan sebelumnya: Tidak Deal${r.Alasan_Tidak_Deal?' - '+escapeHtml(r.Alasan_Tidak_Deal):''}</div>` : ''}
       <div style="margin-top:8px;">
@@ -1534,11 +1593,10 @@ function pendingFollowUpCardHtml(r, badgeLabel, badgeClass){
     </div>`;
 }
 function dealBelumDatangCardHtml(r){
-  const wa = waLink(r.No_HP_Customer, r);
   return `
     <div class="item-block">
       <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
-      ${r.No_HP_Customer ? (wa ? ` (<a href="${wa}" target="_blank">${escapeHtml(r.No_HP_Customer)} - Chat WA</a>)` : ` (${escapeHtml(r.No_HP_Customer)})`) : ''}
+      ${r.No_HP_Customer ? ` (${escapeHtml(r.No_HP_Customer)} - <a href="#" onclick="openFollowUpWA('${r.ID_Kunjungan}'); return false;">Chat WA</a>)` : ''}
       <span class="badge sent">Deal - Belum Datang</span>
       <div class="note">Rencana datang: ${r.Tanggal_Rencana_Datang?toDateInputValue(r.Tanggal_Rencana_Datang):'-'} ${r.Jam_Rencana_Datang||''}</div>
       <div class="row" style="margin-top:8px;">
@@ -1614,10 +1672,9 @@ function renderFollowUpTable(){
   dtInit('followUpTable', filtered, [
     { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
     { key:'Nama_Customer', label:'Customer', filterable:true, filterType:'text' },
-    { key:'No_HP_Customer', label:'No. HP', sortable:false, filterable:false, render:r=>{
-      const wa = waLink(r.No_HP_Customer, r);
-      return r.No_HP_Customer ? (wa ? `<a href="${wa}" target="_blank">${escapeHtml(r.No_HP_Customer)} - Chat WA</a>` : escapeHtml(r.No_HP_Customer)) : '-';
-    }},
+    { key:'No_HP_Customer', label:'No. HP', sortable:false, filterable:false, render:r=>
+      r.No_HP_Customer ? `${escapeHtml(r.No_HP_Customer)} - <a href="#" onclick="openFollowUpWA('${r.ID_Kunjungan}'); return false;">Chat WA</a>` : '-'
+    },
     { key:'_badgeLabel', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${r._badgeClass}">${escapeHtml(r._badgeLabel)}</span>` },
     { key:'_info', label:'Info', sortable:false, filterable:false, render:followUpInfoText },
     { key:'aksi', label:'', sortable:false, filterable:false, render:r=> r.Status_FollowUp==='Deal - Sudah Datang' ? '-' : `<button type="button" class="secondary" onclick="openFollowUpEdit('${r.ID_Kunjungan}')">Update</button>` }
