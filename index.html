@@ -1394,30 +1394,88 @@ async function renderRiwayatForeman(app){
 }
 
 /* ---------- SA: konfirmasi jadwal, follow up & laporan ---------- */
+let konfirmasiRows = [];
 async function renderKonfirmasiSA(app){
   if(!requireSA(app)) return;
-  app.innerHTML = `<div class="card"><h3>Perlu Dikonfirmasi</h3><p class="note">Report yang baru sampai - cek/sesuaikan tanggal rencana follow up (default H+3), lalu konfirmasi supaya masuk ke kantong Follow Up.</p><div id="list">Memuat...</div></div>`;
+  app.innerHTML = `<div class="card"><h3>Perlu Dikonfirmasi</h3><p class="note">Report yang baru sampai - klik "Cek &amp; Konfirmasi" untuk memeriksa/memperbaiki harga jasa dan part sebelum masuk ke follow up (kalau ada yang kosong/salah input dari Foreman), sesuaikan tanggal rencana follow up (default H+3), lalu konfirmasi. PDF report akan dibuat ulang dengan data terbaru.</p><div id="konfirmasiEditPanel"></div><div id="konfirmasiTable">Memuat...</div></div>`;
   const rows = await api('listKunjungan');
-  const list = document.getElementById('list');
-  if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
+  if(!document.getElementById('konfirmasiTable')) return;
+  if(rows.demo){ document.getElementById('konfirmasiTable').innerHTML='<p class="note">Demo mode.</p>'; return; }
   const pending = rows.filter(r=>r.Status==='Report Terkirim' && r.SA===currentSA && r.FollowUp_Dikonfirmasi!=='Ya' && r.Perlu_FollowUp!=='Tidak');
-  list.innerHTML = pending.length ? pending.map(r=>`
-    <div class="item-block">
-      <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
-      <div class="row">
+  konfirmasiRows = pending;
+  dtInit('konfirmasiTable', pending, [
+    { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
+    { key:'Nama_Customer', label:'Customer', filterable:true, filterType:'text' },
+    { key:'Tanggal_Masuk', label:'Tanggal Service', filterable:false, render:r=>r.Tanggal_Masuk?toDateInputValue(r.Tanggal_Masuk):'-' },
+    { key:'aksi', label:'', sortable:false, filterable:false, render:r=>`<button type="button" class="secondary" onclick="openKonfirmasiEdit('${r.ID_Kunjungan}')">Cek &amp; Konfirmasi</button>` }
+  ], 'Tanggal_Masuk', 'Tidak ada report baru yang perlu dikonfirmasi.');
+}
+async function openKonfirmasiEdit(id){
+  currentDetailId = id;
+  const r = konfirmasiRows.find(x=>x.ID_Kunjungan===id);
+  const panel = document.getElementById('konfirmasiEditPanel');
+  if(!r || !panel) return;
+  panel.innerHTML = `<div class="card" style="margin-bottom:22px;"><p class="note">Memuat saran perbaikan...</p></div>`;
+  const detail = await api('getKunjungan','GET',{id});
+  if(!document.getElementById('konfirmasiEditPanel')) return; // SA sudah pindah tab sebelum data selesai dimuat
+  panel.innerHTML = `
+    <div class="card" style="margin-bottom:22px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h4 style="margin:0;">${escapeHtml(r.No_Polisi)} - ${escapeHtml(r.Nama_Customer)}</h4>
+        <button type="button" class="secondary" onclick="closeKonfirmasiEdit()">Tutup</button>
+      </div>
+      <p class="note">Cek/perbaiki harga jasa dan part di bawah - data ini yang akan dikirim ke customer di PDF report saat Anda klik Konfirmasi.</p>
+      <h4>Nama Jasa</h4>
+      <div style="overflow-x:auto;">
+        <table class="items-table">
+          <thead><tr><th>Nama Jasa</th><th>Waktu</th><th>Harga Satuan</th><th>Tipe Jasa</th><th>Keterangan</th><th></th></tr></thead>
+          <tbody id="foremanJasaWrap"></tbody>
+        </table>
+      </div>
+      <button type="button" class="secondary" onclick="addForemanJasaRow()">+ Tambah Jasa</button>
+
+      <h4 style="margin-top:22px;">Nama Parts</h4>
+      <div style="overflow-x:auto;">
+        <table class="items-table">
+          <thead><tr>
+            <th>Nama Parts</th><th>Qty</th><th>Harga Satuan</th><th>Keterangan</th>
+            <th>Tingkat Keparahan</th><th>Ketersediaan</th><th>Foto</th><th></th>
+          </tr></thead>
+          <tbody id="foremanPartsWrap"></tbody>
+        </table>
+      </div>
+      <button type="button" class="secondary" onclick="addForemanPartRow()">+ Tambah Parts</button>
+
+      <div class="row" style="margin-top:16px;">
         <div><label>Tanggal Rencana Follow Up</label>
-          <input type="date" id="tgl-${r.ID_Kunjungan}" value="${toDateInputValue(r.Tanggal_FollowUp_Rencana)}">
+          <input type="date" id="tgl-${id}" value="${toDateInputValue(r.Tanggal_FollowUp_Rencana)}">
         </div>
       </div>
-      <button type="button" class="primary" onclick="confirmFollowUpDate('${r.ID_Kunjungan}')">Konfirmasi</button>
-    </div>`).join('') : '<p class="note">Tidak ada report baru yang perlu dikonfirmasi.</p>';
+      <button type="button" class="primary" onclick="confirmFollowUpDate('${id}', this)">Konfirmasi</button>
+    </div>`;
+  (detail.itemsJasa||[]).forEach(it=>addForemanJasaRow(it));
+  (detail.items||[]).forEach(it=>addForemanPartRow(it));
+  panel.scrollIntoView({behavior:'smooth', block:'start'});
 }
-async function confirmFollowUpDate(id){
+function closeKonfirmasiEdit(){
+  const panel = document.getElementById('konfirmasiEditPanel');
+  if(panel) panel.innerHTML = '';
+}
+async function confirmFollowUpDate(id, btn){
   const val = document.getElementById('tgl-'+id).value;
   if(!val){ alert('Tanggal wajib diisi'); return; }
-  const res = await api('updateRow','POST',{ sheet:'Kunjungan', id, fields:{ Tanggal_FollowUp_Rencana: val, FollowUp_Dikonfirmasi: 'Ya' } });
-  if(res.success){ renderKonfirmasiSA(document.getElementById('app')); }
-  else alert('Gagal menyimpan: '+(res.error||'unknown error'));
+  if(btn){ btn.disabled = true; btn.textContent = 'Memproses...'; }
+  try{
+    const res = await api('updateRow','POST',{ sheet:'Kunjungan', id, fields:{ Tanggal_FollowUp_Rencana: val, FollowUp_Dikonfirmasi: 'Ya' } });
+    if(!res.success){ alert('Gagal menyimpan: '+(res.error||'unknown error')); return; }
+    // Regenerate PDF final supaya harga jasa/part yang baru saja dikoreksi SA ikut terbawa
+    // ke report yang siap dikirim ke customer (bukan versi lama dari Foreman).
+    const reportRes = await api('generateReport','POST',{ idKunjungan: id, printedBy: 'sa' });
+    if(reportRes && reportRes.error) alert('Tanggal follow up tersimpan, tapi gagal membuat ulang PDF report: '+reportRes.error);
+    renderKonfirmasiSA(document.getElementById('app'));
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = 'Konfirmasi'; }
+  }
 }
 function isThisWeek(dateStr){
   if(!dateStr) return false;

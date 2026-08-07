@@ -47,7 +47,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v34-tipejasa-keparahan'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v35-konfirmasi-edit-saran'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -573,13 +573,19 @@ function insertImageAtPlaceholderEverywhere(doc, placeholder, imageBlob, widthPt
  *  belum ada tanda tangan/QR) atau 'foreman' (default, laporan final: status jadi
  *  "Report Terkirim", QR signing dibuat, PDF_URL & Nama_Foreman disimpan). */
 function generateReport(idKunjungan, namaForeman, printedBy) {
-  printedBy = printedBy === 'teknisi' ? 'teknisi' : 'foreman';
+  // 'teknisi' = draft (belum final). 'foreman' = laporan final saat pertama dikirim ke SA.
+  // 'sa' = SA regenerate PDF final saat Konfirmasi setelah mengoreksi harga jasa/part yang
+  // salah/kosong dari Foreman - tetap dianggap laporan final (bertanda tangan), bukan draft baru.
+  printedBy = printedBy === 'teknisi' ? 'teknisi' : (printedBy === 'sa' ? 'sa' : 'foreman');
+  const isFinal = printedBy !== 'teknisi';
   const detail = getKunjunganDetail(idKunjungan);
   if (detail.error) return detail;
   const kj = detail.kunjungan;
   const items = detail.items || [];
   const itemsJasa = detail.itemsJasa || [];
   const itemsSSC = detail.itemsSSC || [];
+  // SA tidak mengirim namaForeman - pertahankan nama Foreman yang sudah menandatangani sebelumnya.
+  const effectiveForeman = namaForeman || kj.Nama_Foreman || '';
 
   // Duplikat template Google Docs, isi placeholder, export ke PDF
   const templateFile = DriveApp.getFileById(PDF_TEMPLATE_ID);
@@ -661,15 +667,15 @@ function generateReport(idKunjungan, namaForeman, printedBy) {
   // Uji Emisi
   body.replaceText('{{UJI_EMISI_STATUS}}', kj.UjiEmisi_Status || 'Tidak Lulus/Belum Uji Emisi/Kadaluarsa');
 
-  // Tanda tangan - hanya terisi saat laporan final dari Foreman
+  // Tanda tangan - hanya terisi saat laporan final (Foreman atau SA regenerate)
   const now = new Date();
-  body.replaceText('{{TANGGAL}}', printedBy === 'foreman' ? Utilities.formatDate(now, 'GMT+7', 'dd/MM/yyyy') : '-');
-  body.replaceText('{{NAMA_FOREMAN}}', printedBy === 'foreman' ? (namaForeman || '') : '-');
+  body.replaceText('{{TANGGAL}}', isFinal ? Utilities.formatDate(now, 'GMT+7', 'dd/MM/yyyy') : '-');
+  body.replaceText('{{NAMA_FOREMAN}}', isFinal ? effectiveForeman : '-');
 
-  // QR signing (stempel info, bukan link verifikasi) - hanya saat Foreman finalisasi
+  // QR signing (stempel info, bukan link verifikasi) - hanya saat laporan final
   let qrWarning = null;
-  if (printedBy === 'foreman') {
-    const qrText = 'LAPORAN DITANDATANGANI\nForeman: ' + (namaForeman || '-') +
+  if (isFinal) {
+    const qrText = 'LAPORAN DITANDATANGANI\nForeman: ' + (effectiveForeman || '-') +
       '\nNo. Polisi: ' + (kj.No_Polisi || '-') +
       '\nID Kunjungan: ' + idKunjungan +
       '\nTanggal: ' + Utilities.formatDate(now, 'GMT+7', 'dd/MM/yyyy HH:mm');
@@ -704,7 +710,7 @@ function generateReport(idKunjungan, namaForeman, printedBy) {
 
   // update status kunjungan + simpan nama Foreman yang mengirim - hanya untuk laporan final
   // (cetak draft oleh Teknisi tidak mengubah status, Foreman tetap wajib QC/finalisasi)
-  if (printedBy === 'foreman') {
+  if (isFinal) {
     const sh = getSheet('Kunjungan');
     const data = sh.getDataRange().getValues();
     const header = data[0];
@@ -719,7 +725,7 @@ function generateReport(idKunjungan, namaForeman, printedBy) {
       if (data[r][0] === idKunjungan) {
         sh.getRange(r + 1, statusCol + 1).setValue('Report Terkirim');
         sh.getRange(r + 1, pdfCol + 1).setValue(pdfFile.getUrl());
-        if (foremanCol !== -1 && namaForeman) sh.getRange(r + 1, foremanCol + 1).setValue(namaForeman);
+        if (foremanCol !== -1 && effectiveForeman) sh.getRange(r + 1, foremanCol + 1).setValue(effectiveForeman);
         if (perluFollowUpCol !== -1) sh.getRange(r + 1, perluFollowUpCol + 1).setValue(perluFollowUp);
         break;
       }
