@@ -702,7 +702,7 @@ async function renderInputTeknisi(app){
     <div style="overflow-x:auto;">
       <table class="items-table">
         <thead>
-          <tr><th>Nama Jasa</th><th>Waktu</th><th>Harga Satuan</th><th>Keterangan</th><th></th></tr>
+          <tr><th>Nama Jasa</th><th>Waktu</th><th>Harga Satuan</th><th>Tipe Jasa</th><th>Keterangan</th><th></th></tr>
         </thead>
         <tbody id="jasaWrap"></tbody>
       </table>
@@ -719,6 +719,7 @@ async function renderInputTeknisi(app){
             <th>Qty</th>
             <th>Harga Satuan</th>
             <th>Keterangan</th>
+            <th>Tingkat Keparahan</th>
             <th>Ketersediaan</th>
             <th>Foto</th>
             <th></th>
@@ -797,6 +798,7 @@ function addJasaRow(){
     <td><input class="j-nama"></td>
     <td><input class="j-waktu" placeholder="cth: 30 menit"></td>
     <td><input class="j-harga" type="text" inputmode="numeric" oninput="formatRibuan(this); updateTotalJasa()"></td>
+    <td><select class="j-tipejasa"><option value="Reguler">Reguler</option><option value="Based On TI">Based On TI</option></select></td>
     <td><input class="j-ket"></td>
     <td><button type="button" class="row-remove" onclick="this.closest('tr').remove(); updateTotalJasa()" title="Hapus baris">&times;</button></td>
   `;
@@ -819,6 +821,12 @@ function addItemBlock(){
     <td><input class="f-qty" type="number" min="1" value="1" oninput="updateTotalParts()"></td>
     <td><input class="f-harga" type="text" inputmode="numeric" oninput="formatRibuan(this); updateTotalParts()"></td>
     <td><input class="f-ket" placeholder="cth: aus, bocor, patah dudukan..."></td>
+    <td><select class="f-keparahan">
+          <option value="">-- Pilih --</option>
+          <option value="Ringan">Ringan</option>
+          <option value="Sedang">Sedang</option>
+          <option value="Parah">Parah</option>
+        </select></td>
     <td><select class="f-ketersediaan">
           <option value="">-- Pilih --</option>
           <option value="Ready">Ready</option>
@@ -859,7 +867,7 @@ async function submitKunjungan(){
       const namaKomponen = b.querySelector('.f-nama').value;
       const qty = b.querySelector('.f-qty').value;
       if(!namaKomponen || !qty) continue;
-      const item = { namaKomponen, qty, hargaSatuan: parseRibuan(b.querySelector('.f-harga').value), keterangan: b.querySelector('.f-ket').value, ketersediaanPart: b.querySelector('.f-ketersediaan').value };
+      const item = { namaKomponen, qty, hargaSatuan: parseRibuan(b.querySelector('.f-harga').value), keterangan: b.querySelector('.f-ket').value, tingkatKeparahan: b.querySelector('.f-keparahan').value, ketersediaanPart: b.querySelector('.f-ketersediaan').value };
       const file = b.querySelector('.f-foto').files[0];
       if(file){
         if(btn) btn.textContent = 'Mengupload foto...';
@@ -880,6 +888,7 @@ async function submitKunjungan(){
         namaJasa,
         waktu: b.querySelector('.j-waktu').value,
         hargaSatuan: parseRibuan(b.querySelector('.j-harga').value),
+        tipeJasa: b.querySelector('.j-tipejasa').value,
         keterangan: b.querySelector('.j-ket').value
       });
     }
@@ -1043,7 +1052,7 @@ async function openForemanEdit(id){
     <h4>Nama Jasa</h4>
     <div style="overflow-x:auto;">
       <table class="items-table">
-        <thead><tr><th>Nama Jasa</th><th>Waktu</th><th>Harga Satuan</th><th>Keterangan</th><th></th></tr></thead>
+        <thead><tr><th>Nama Jasa</th><th>Waktu</th><th>Harga Satuan</th><th>Tipe Jasa</th><th>Keterangan</th><th></th></tr></thead>
         <tbody id="foremanJasaWrap"></tbody>
       </table>
     </div>
@@ -1054,7 +1063,7 @@ async function openForemanEdit(id){
       <table class="items-table">
         <thead><tr>
           <th>Nama Parts</th><th>Qty</th><th>Harga Satuan</th><th>Keterangan</th>
-          <th>Ketersediaan</th><th>Foto</th><th></th>
+          <th>Tingkat Keparahan</th><th>Ketersediaan</th><th>Foto</th><th></th>
         </tr></thead>
         <tbody id="foremanPartsWrap"></tbody>
       </table>
@@ -1134,6 +1143,10 @@ function addForemanJasaRow(it){
     <td><input class="fj-nama" value="${escapeHtml(it.Nama_Jasa||'')}"></td>
     <td><input class="fj-waktu" value="${escapeHtml(it.Waktu||'')}"></td>
     <td><input class="fj-harga" type="text" inputmode="numeric" oninput="formatRibuan(this)" value="${toRibuan(it.Harga_Satuan)}"></td>
+    <td><select class="fj-tipejasa">
+          <option value="Reguler" ${(it.Tipe_Jasa||'Reguler')==='Reguler'?'selected':''}>Reguler</option>
+          <option value="Based On TI" ${it.Tipe_Jasa==='Based On TI'?'selected':''}>Based On TI</option>
+        </select></td>
     <td><input class="fj-ket" value="${escapeHtml(it.Keterangan||'')}"></td>
     <td>
       <button type="button" class="secondary" onclick="saveForemanJasaRow(this)">Simpan</button>
@@ -1148,14 +1161,15 @@ async function saveForemanJasaRow(btn){
   const namaJasa = tr.querySelector('.fj-nama').value;
   const waktu = tr.querySelector('.fj-waktu').value;
   const hargaSatuan = parseRibuan(tr.querySelector('.fj-harga').value);
+  const tipeJasa = tr.querySelector('.fj-tipejasa').value;
   const keterangan = tr.querySelector('.fj-ket').value;
   let res;
   if(!id){
-    res = await api('addItemJasa','POST',{ idKunjungan: currentDetailId, namaJasa, waktu, hargaSatuan, keterangan });
+    res = await api('addItemJasa','POST',{ idKunjungan: currentDetailId, namaJasa, waktu, hargaSatuan, tipeJasa, keterangan });
     if(res.success) tr.dataset.id = res.idJasa;
   } else {
     res = await api('updateRow','POST',{ sheet:'Item_Jasa', id, fields:{
-      Nama_Jasa: namaJasa, Waktu: waktu, Harga_Satuan: hargaSatuan, Keterangan: keterangan
+      Nama_Jasa: namaJasa, Waktu: waktu, Harga_Satuan: hargaSatuan, Tipe_Jasa: tipeJasa, Keterangan: keterangan
     }});
   }
   btn.textContent = res.success ? 'Tersimpan ✓' : 'Gagal';
@@ -1178,6 +1192,12 @@ function addForemanPartRow(it){
     <td><input class="fp-qty" type="number" min="1" value="${it.Qty||1}"></td>
     <td><input class="fp-hargasatuan" type="text" inputmode="numeric" oninput="formatRibuan(this)" value="${toRibuan(it.Harga_Satuan_Teknisi)}"></td>
     <td><input class="fp-ket-teknisi" value="${escapeHtml(it.Keterangan_Teknisi||'')}"></td>
+    <td><select class="fp-keparahan">
+          <option value="" ${!it.Tingkat_Keparahan?'selected':''}>-- Pilih --</option>
+          <option value="Ringan" ${it.Tingkat_Keparahan==='Ringan'?'selected':''}>Ringan</option>
+          <option value="Sedang" ${it.Tingkat_Keparahan==='Sedang'?'selected':''}>Sedang</option>
+          <option value="Parah" ${it.Tingkat_Keparahan==='Parah'?'selected':''}>Parah</option>
+        </select></td>
     <td><select class="fp-ketersediaan">
           <option value="">-- Pilih --</option>
           <option value="Ready" ${it.Ketersediaan_Part==='Ready'?'selected':''}>Ready</option>
@@ -1202,6 +1222,7 @@ async function saveForemanPartRow(btn){
   const qty = tr.querySelector('.fp-qty').value;
   const hargaSatuan = parseRibuan(tr.querySelector('.fp-hargasatuan').value);
   const keterangan = tr.querySelector('.fp-ket-teknisi').value;
+  const tingkatKeparahan = tr.querySelector('.fp-keparahan').value;
   const ketersediaanPart = tr.querySelector('.fp-ketersediaan').value;
   let fotoUrl;
   const file = tr.querySelector('.fp-foto').files[0];
@@ -1214,12 +1235,12 @@ async function saveForemanPartRow(btn){
   }
   let res;
   if(!id){
-    res = await api('addItemSaran','POST',{ idKunjungan: currentDetailId, namaKomponen, qty, hargaSatuan, keterangan, ketersediaanPart, fotoUrl });
+    res = await api('addItemSaran','POST',{ idKunjungan: currentDetailId, namaKomponen, qty, hargaSatuan, keterangan, tingkatKeparahan, ketersediaanPart, fotoUrl });
     if(res.success) tr.dataset.id = res.idItem;
   } else {
     const fields = {
       Nama_Komponen: namaKomponen, Qty: qty, Harga_Satuan_Teknisi: hargaSatuan, Keterangan_Teknisi: keterangan,
-      Ketersediaan_Part: ketersediaanPart
+      Tingkat_Keparahan: tingkatKeparahan, Ketersediaan_Part: ketersediaanPart
     };
     if(fotoUrl) fields.Foto_URL = fotoUrl;
     res = await api('updateRow','POST',{ sheet:'Item_Saran', id, fields });
@@ -1537,12 +1558,15 @@ async function renderFollowUp(app){
   const upcomingList = pending.filter(r=>rencanaStr(r) && rencanaStr(r) > todayStr);
   const dealBelumDatang = mine.filter(r=>r.Status_FollowUp === 'Deal - Belum Datang');
   const dealMingguList = mine.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang' && isThisWeek(r.Tanggal_Kedatangan_Aktual));
+  const pendingConfirmCount = rows.filter(r=>r.Status==='Report Terkirim' && r.SA===currentSA && r.FollowUp_Dikonfirmasi!=='Ya' && r.Perlu_FollowUp!=='Tidak').length;
 
   followUpState.filter = null;
   list.innerHTML = `
     <div class="kpi" style="margin-bottom:22px;">
+      <div class="box filterable" data-key="konfirmasi" onclick="goToKonfirmasiSA()" title="Buka menu Perlu Dikonfirmasi"><div class="num">${pendingConfirmCount}</div><div class="lbl">Perlu Dikonfirmasi</div></div>
       <div class="box warning filterable" data-key="hari" onclick="setFollowUpFilter('hari')"><div class="num">${todayList.length}</div><div class="lbl">Perlu Follow Up Hari Ini</div></div>
       <div class="box filterable" data-key="overdue" onclick="setFollowUpFilter('overdue')"><div class="num">${overdueList.length}</div><div class="lbl">Lewat Jatuh Tempo</div></div>
+      <div class="box filterable" data-key="upcoming" onclick="setFollowUpFilter('upcoming')"><div class="num">${upcomingList.length}</div><div class="lbl">Belum Jatuh Tempo</div></div>
       <div class="box info filterable" data-key="dealBelumDatang" onclick="setFollowUpFilter('dealBelumDatang')"><div class="num">${dealBelumDatang.length}</div><div class="lbl">Deal Belum Datang</div></div>
       <div class="box success filterable" data-key="dealMinggu" onclick="setFollowUpFilter('dealMinggu')"><div class="num">${dealMingguList.length}</div><div class="lbl">Deal Minggu Ini</div></div>
     </div>
@@ -1568,6 +1592,13 @@ async function renderFollowUp(app){
       ${upcomingList.length ? upcomingList.map(r=>pendingFollowUpCardHtml(r,'Belum Jatuh Tempo','wait')).join('') : '<p class="note">Tidak ada.</p>'}
     </div>
   `;
+}
+function goToKonfirmasiSA(){
+  const nav = document.getElementById('tabs');
+  const idx = TABS['sa'].findIndex(t=>t[0]==='konfirmasi');
+  [...nav.children].forEach(c=>c.classList.remove('active'));
+  if(nav.children[idx]) nav.children[idx].classList.add('active');
+  render('konfirmasi');
 }
 function setFollowUpFilter(key){
   followUpState.filter = (followUpState.filter === key) ? null : key;
