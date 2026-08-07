@@ -1563,25 +1563,53 @@ async function openFollowUpWA(id){
 }
 async function toggleFollowUpDetail(id, btn){
   const box = document.getElementById('detail-'+id);
-  const isHidden = !box.style.display || box.style.display === 'none';
-  if(isHidden){
+  const isShown = box.dataset.shown === '1';
+  if(!isShown){
     if(!box.dataset.loaded){
       box.innerHTML = '<p class="note">Memuat...</p>';
       const detail = await api('getKunjungan','GET',{id});
-      const jasa = (detail.itemsJasa||[]).map(j=>j.Nama_Jasa).filter(Boolean);
-      const parts = (detail.items||[]).map(p=>p.Nama_Komponen).filter(Boolean);
-      box.innerHTML = (jasa.length || parts.length) ? `
-        ${jasa.length ? `<p class="note"><b>Jasa:</b> ${jasa.map(escapeHtml).join(', ')}</p>` : ''}
-        ${parts.length ? `<p class="note"><b>Parts:</b> ${parts.map(escapeHtml).join(', ')}</p>` : ''}
-      ` : '<p class="note">Tidak ada saran perbaikan.</p>';
+      box.innerHTML = followUpDetailTableHtml(detail.itemsJasa||[], detail.items||[]);
       box.dataset.loaded = '1';
     }
     box.style.display = '';
+    box.dataset.shown = '1';
     btn.textContent = 'Sembunyikan Saran Perbaikan';
   } else {
     box.style.display = 'none';
+    box.dataset.shown = '0';
     btn.textContent = 'Lihat Saran Perbaikan';
   }
+}
+function followUpDetailTableHtml(itemsJasa, items){
+  const hargaPart = it => Number(it.Estimasi_Harga) || Number(it.Harga_Satuan_Teknisi) || 0;
+  let totalJasa = 0, totalPart = 0;
+  const jasaRows = itemsJasa.filter(j=>j.Nama_Jasa).map(j=>{
+    const harga = Number(j.Harga_Satuan) || 0;
+    totalJasa += harga;
+    return `<tr><td>${escapeHtml(j.Nama_Jasa)}</td><td>${escapeHtml(j.Waktu||'-')}</td><td>${formatRupiah(harga)}</td><td>${escapeHtml(j.Tipe_Jasa||'Reguler')}</td><td>${escapeHtml(j.Keterangan||'-')}</td></tr>`;
+  }).join('');
+  const partRows = items.filter(it=>it.Nama_Komponen).map(it=>{
+    const qty = Number(it.Qty) || 0;
+    const harga = hargaPart(it);
+    totalPart += harga * qty;
+    return `<tr><td>${escapeHtml(it.Nama_Komponen)}</td><td>${qty}</td><td>${formatRupiah(harga)}</td><td>${formatRupiah(harga*qty)}</td><td>${escapeHtml(it.Tingkat_Keparahan||'-')}</td><td>${escapeHtml(it.Keterangan_Partman||it.Keterangan_Teknisi||'-')}</td></tr>`;
+  }).join('');
+  if(!jasaRows && !partRows) return '<p class="note">Tidak ada saran perbaikan.</p>';
+  return `
+    ${jasaRows ? `
+    <p class="note" style="margin-bottom:4px;"><b>Nama Jasa</b></p>
+    <div style="overflow-x:auto;"><table class="items-table">
+      <thead><tr><th>Nama Jasa</th><th>Waktu</th><th>Harga Satuan</th><th>Tipe Jasa</th><th>Keterangan</th></tr></thead>
+      <tbody>${jasaRows}</tbody>
+    </table></div>` : ''}
+    ${partRows ? `
+    <p class="note" style="margin:12px 0 4px;"><b>Nama Parts</b></p>
+    <div style="overflow-x:auto;"><table class="items-table">
+      <thead><tr><th>Nama Parts</th><th>Qty</th><th>Harga Satuan</th><th>Total</th><th>Tingkat Keparahan</th><th>Keterangan</th></tr></thead>
+      <tbody>${partRows}</tbody>
+    </table></div>` : ''}
+    <p class="note" style="margin-top:8px;"><b>Total Estimasi Saran Perbaikan: ${formatRupiah(totalJasa+totalPart)}</b></p>
+  `;
 }
 function toggleFollowUpOutcome(id, selectEl){
   const status = selectEl.value;
