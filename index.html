@@ -1460,12 +1460,12 @@ function formatTanggalIndo(dateVal){
 function buildFollowUpWaMessage(kj, itemsJasa, items){
   const nama = kj.Nama_Customer || 'Bapak/Ibu';
   const tglService = formatTanggalIndo(kj.Tanggal_Masuk);
-  const jasaLines = (itemsJasa||[]).filter(j=>j.Nama_Jasa).map(j=>`*${j.Nama_Jasa}* - *${formatRupiah(j.Harga_Satuan)}*`);
+  const jasaLines = (itemsJasa||[]).filter(j=>j.Nama_Jasa).map(j=>`*${j.Nama_Jasa}* = *${formatRupiah(j.Harga_Satuan)}*`);
   const totalJasa = (itemsJasa||[]).reduce((s,j)=>s+(Number(j.Harga_Satuan)||0), 0);
   const hargaPart = it => Number(it.Estimasi_Harga) || Number(it.Harga_Satuan_Teknisi) || 0;
   const partLines = (items||[]).filter(it=>it.Nama_Komponen).map(it=>{
     const qty = Number(it.Qty) || 0;
-    return `*${it.Nama_Komponen}* : *${qty}pcs* x *${formatRupiah(hargaPart(it))}* = *${formatRupiah(hargaPart(it)*qty)}*`;
+    return `-*${it.Nama_Komponen}* : *${qty}pcs* x *${formatRupiah(hargaPart(it))}* = *${formatRupiah(hargaPart(it)*qty)}*`;
   });
   const totalPart = (items||[]).reduce((s,it)=>s+hargaPart(it)*(Number(it.Qty)||0), 0);
   const totalEstimasi = totalJasa + totalPart;
@@ -1476,7 +1476,7 @@ function buildFollowUpWaMessage(kj, itemsJasa, items){
     '',
     jasaLines.length ? jasaLines.join('\n') : '-',
     '',
-    `-`,partLines.length ? partLines.join('\n') : '-',
+    partLines.length ? partLines.join('\n') : '-',
     '',
     `*Total Estimasi Harga: ${formatRupiah(totalEstimasi)}*`,
     '',
