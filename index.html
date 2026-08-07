@@ -1435,13 +1435,20 @@ function addDaysISO(dateStr, days){
   return toDateInputValue(d);
 }
 // Nomor HP customer -> link WhatsApp click-to-chat (08xx/+62xx/62xx semua dinormalisasi ke 62xx)
-function waLink(phone){
+function waLink(phone, r){
   if(!phone) return '';
   let p = String(phone).replace(/[^0-9]/g,'');
   if(!p) return '';
   if(p.startsWith('0')) p = '62' + p.slice(1);
   else if(!p.startsWith('62')) p = '62' + p;
-  return 'https://wa.me/' + p;
+  let url = 'https://wa.me/' + p;
+  if(r) url += '?text=' + encodeURIComponent(waDefaultMessage(r));
+  return url;
+}
+function waDefaultMessage(r){
+  const nama = r.Nama_Customer || 'Bapak/Ibu';
+  const noPolisi = r.No_Polisi || '';
+  return `Selamat siang ${nama}, kami dari Daya Toyota Bekasi ingin follow up mengenai kendaraan ${noPolisi} yang sebelumnya melakukan servis di bengkel kami. Apakah Bapak/Ibu berkenan untuk melakukan servis lanjutan sesuai saran perbaikan dari tim kami?`;
 }
 async function toggleFollowUpDetail(id, btn){
   const box = document.getElementById('detail-'+id);
@@ -1473,7 +1480,7 @@ function toggleFollowUpOutcome(id, selectEl){
   if(dealBlock) dealBlock.style.display = status === 'Deal' ? '' : 'none';
 }
 function pendingFollowUpCardHtml(r, badgeLabel, badgeClass){
-  const wa = waLink(r.No_HP_Customer);
+  const wa = waLink(r.No_HP_Customer, r);
   return `
     <div class="item-block">
       <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
@@ -1527,7 +1534,7 @@ function pendingFollowUpCardHtml(r, badgeLabel, badgeClass){
     </div>`;
 }
 function dealBelumDatangCardHtml(r){
-  const wa = waLink(r.No_HP_Customer);
+  const wa = waLink(r.No_HP_Customer, r);
   return `
     <div class="item-block">
       <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
@@ -1541,7 +1548,7 @@ function dealBelumDatangCardHtml(r){
       <button type="button" class="primary" onclick="saveKedatangan('${r.ID_Kunjungan}')">Simpan Kedatangan</button>
     </div>`;
 }
-let followUpState = { filter: null };
+let followUpState = { filter: null, rows: [] };
 async function renderFollowUp(app){
   if(!requireSA(app)) return;
   app.innerHTML = `<div class="card"><h3>Follow Up Customer</h3><div id="list">Memuat...</div></div>`;
@@ -1560,7 +1567,16 @@ async function renderFollowUp(app){
   const dealMingguList = mine.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang' && isThisWeek(r.Tanggal_Kedatangan_Aktual));
   const pendingConfirmCount = rows.filter(r=>r.Status==='Report Terkirim' && r.SA===currentSA && r.FollowUp_Dikonfirmasi!=='Ya' && r.Perlu_FollowUp!=='Tidak').length;
 
+  const decorate = (arr, kategori, badgeLabel, badgeClass) => arr.map(r=>({ ...r, _kategori:kategori, _badgeLabel:badgeLabel, _badgeClass:badgeClass }));
+  followUpState.rows = [
+    ...decorate(todayList, 'hari', 'Hari Ini', 'wait'),
+    ...decorate(overdueList, 'overdue', 'Lewat Jatuh Tempo', 'overdue'),
+    ...decorate(upcomingList, 'upcoming', 'Belum Jatuh Tempo', 'wait'),
+    ...decorate(dealBelumDatang, 'dealBelumDatang', 'Deal - Belum Datang', 'sent'),
+    ...decorate(dealMingguList, 'dealMinggu', 'Deal - Sudah Datang', 'sent')
+  ];
   followUpState.filter = null;
+
   list.innerHTML = `
     <div class="kpi" style="margin-bottom:22px;">
       <div class="box filterable" data-key="konfirmasi" onclick="goToKonfirmasiSA()" title="Buka menu Perlu Dikonfirmasi"><div class="num">${pendingConfirmCount}</div><div class="lbl">Perlu Dikonfirmasi</div></div>
@@ -1570,28 +1586,11 @@ async function renderFollowUp(app){
       <div class="box info filterable" data-key="dealBelumDatang" onclick="setFollowUpFilter('dealBelumDatang')"><div class="num">${dealBelumDatang.length}</div><div class="lbl">Deal Belum Datang</div></div>
       <div class="box success filterable" data-key="dealMinggu" onclick="setFollowUpFilter('dealMinggu')"><div class="num">${dealMingguList.length}</div><div class="lbl">Deal Minggu Ini</div></div>
     </div>
-    <p class="note">Klik salah satu kartu di atas untuk memfilter daftar di bawah; klik lagi kartu yang sama untuk menampilkan semua.</p>
-    <div class="fu-section" data-section="hari">
-      <h4>Perlu Follow Up Hari Ini (${todayList.length})</h4>
-      ${todayList.length ? todayList.map(r=>pendingFollowUpCardHtml(r,'Hari Ini','wait')).join('') : '<p class="note">Tidak ada.</p>'}
-    </div>
-    <div class="fu-section" data-section="overdue">
-      <h4 style="margin-top:22px;">Sudah Lewat Jatuh Tempo (${overdueList.length})</h4>
-      ${overdueList.length ? overdueList.map(r=>pendingFollowUpCardHtml(r,'Lewat Jatuh Tempo','overdue')).join('') : '<p class="note">Tidak ada.</p>'}
-    </div>
-    <div class="fu-section" data-section="dealBelumDatang">
-      <h4 style="margin-top:22px;">Deal - Belum Datang (${dealBelumDatang.length})</h4>
-      ${dealBelumDatang.length ? dealBelumDatang.map(dealBelumDatangCardHtml).join('') : '<p class="note">Tidak ada.</p>'}
-    </div>
-    <div class="fu-section" data-section="dealMinggu">
-      <h4 style="margin-top:22px;">Deal - Sudah Datang Minggu Ini (${dealMingguList.length})</h4>
-      ${dealMingguList.length ? dealMingguList.map(sudahDatangCardHtml).join('') : '<p class="note">Tidak ada.</p>'}
-    </div>
-    <div class="fu-section" data-section="upcoming">
-      <h4 style="margin-top:22px;">Belum Jatuh Tempo (${upcomingList.length})</h4>
-      ${upcomingList.length ? upcomingList.map(r=>pendingFollowUpCardHtml(r,'Belum Jatuh Tempo','wait')).join('') : '<p class="note">Tidak ada.</p>'}
-    </div>
+    <p class="note">Klik salah satu kartu di atas untuk memfilter tabel di bawah; klik lagi kartu yang sama untuk menampilkan semua. Klik "Update" pada baris untuk mengubah status follow up-nya - baris lain tidak akan terbuka.</p>
+    <div id="followUpEditPanel"></div>
+    <div id="followUpTable"></div>
   `;
+  renderFollowUpTable();
 }
 function goToKonfirmasiSA(){
   const nav = document.getElementById('tabs');
@@ -1606,19 +1605,48 @@ function setFollowUpFilter(key){
   [...document.querySelectorAll('.kpi .box.filterable')].forEach(b=>{
     b.classList.toggle('active', b.dataset.key === activeKey);
   });
-  [...document.querySelectorAll('.fu-section')].forEach(sec=>{
-    sec.style.display = (!activeKey || sec.dataset.section === activeKey) ? '' : 'none';
-  });
+  closeFollowUpEdit();
+  renderFollowUpTable();
 }
-function sudahDatangCardHtml(r){
-  const wa = waLink(r.No_HP_Customer);
-  return `
-    <div class="item-block">
-      <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
-      ${r.No_HP_Customer ? (wa ? ` (<a href="${wa}" target="_blank">${escapeHtml(r.No_HP_Customer)} - Chat WA</a>)` : ` (${escapeHtml(r.No_HP_Customer)})`) : ''}
-      <span class="badge sent">Deal - Sudah Datang</span>
-      <div class="note">Tanggal kedatangan: ${r.Tanggal_Kedatangan_Aktual?toDateInputValue(r.Tanggal_Kedatangan_Aktual):'-'}${r.Nomor_PKB?' - PKB: '+escapeHtml(r.Nomor_PKB):''}</div>
-    </div>`;
+function renderFollowUpTable(){
+  if(!document.getElementById('followUpTable')) return;
+  const filtered = followUpState.filter ? followUpState.rows.filter(r=>r._kategori===followUpState.filter) : followUpState.rows;
+  dtInit('followUpTable', filtered, [
+    { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
+    { key:'Nama_Customer', label:'Customer', filterable:true, filterType:'text' },
+    { key:'No_HP_Customer', label:'No. HP', sortable:false, filterable:false, render:r=>{
+      const wa = waLink(r.No_HP_Customer, r);
+      return r.No_HP_Customer ? (wa ? `<a href="${wa}" target="_blank">${escapeHtml(r.No_HP_Customer)} - Chat WA</a>` : escapeHtml(r.No_HP_Customer)) : '-';
+    }},
+    { key:'_badgeLabel', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${r._badgeClass}">${escapeHtml(r._badgeLabel)}</span>` },
+    { key:'_info', label:'Info', sortable:false, filterable:false, render:followUpInfoText },
+    { key:'aksi', label:'', sortable:false, filterable:false, render:r=> r.Status_FollowUp==='Deal - Sudah Datang' ? '-' : `<button type="button" class="secondary" onclick="openFollowUpEdit('${r.ID_Kunjungan}')">Update</button>` }
+  ], 'No_Polisi', 'Tidak ada data follow up.');
+}
+function followUpInfoText(r){
+  if(r._kategori==='dealBelumDatang') return 'Rencana datang: ' + (r.Tanggal_Rencana_Datang?toDateInputValue(r.Tanggal_Rencana_Datang):'-') + ' ' + (r.Jam_Rencana_Datang||'');
+  if(r._kategori==='dealMinggu') return 'Datang: ' + (r.Tanggal_Kedatangan_Aktual?toDateInputValue(r.Tanggal_Kedatangan_Aktual):'-') + (r.Nomor_PKB?' - PKB '+escapeHtml(r.Nomor_PKB):'');
+  let txt = 'Rencana FU: ' + (r.Tanggal_FollowUp_Rencana?toDateInputValue(r.Tanggal_FollowUp_Rencana):'-');
+  if(r.Status_FollowUp==='Tidak Deal') txt += ' (sebelumnya Tidak Deal)';
+  return txt;
+}
+function openFollowUpEdit(id){
+  const r = followUpState.rows.find(x=>x.ID_Kunjungan===id);
+  const panel = document.getElementById('followUpEditPanel');
+  if(!r || !panel) return;
+  const body = r.Status_FollowUp === 'Deal - Belum Datang' ? dealBelumDatangCardHtml(r) : pendingFollowUpCardHtml(r, r._badgeLabel, r._badgeClass);
+  panel.innerHTML = `<div class="card" style="margin-bottom:22px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <h4 style="margin:0;">Update Follow Up</h4>
+      <button type="button" class="secondary" onclick="closeFollowUpEdit()">Tutup</button>
+    </div>
+    ${body}
+  </div>`;
+  panel.scrollIntoView({behavior:'smooth', block:'start'});
+}
+function closeFollowUpEdit(){
+  const panel = document.getElementById('followUpEditPanel');
+  if(panel) panel.innerHTML = '';
 }
 async function saveFollowUpDate(id){
   const val = document.getElementById('tgl-'+id).value;
