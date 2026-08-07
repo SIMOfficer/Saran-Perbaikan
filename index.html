@@ -1465,7 +1465,7 @@ function buildFollowUpWaMessage(kj, itemsJasa, items){
   const hargaPart = it => Number(it.Estimasi_Harga) || Number(it.Harga_Satuan_Teknisi) || 0;
   const partLines = (items||[]).filter(it=>it.Nama_Komponen).map(it=>{
     const qty = Number(it.Qty) || 0;
-    return `*-${it.Nama_Komponen}* : *${qty}pcs* x *${formatRupiah(hargaPart(it))}* = *${formatRupiah(hargaPart(it)*qty)}*`;
+    return `*- ${it.Nama_Komponen}* : *${qty}pcs* x *${formatRupiah(hargaPart(it))}* = *${formatRupiah(hargaPart(it)*qty)}*`;
   });
   const totalPart = (items||[]).reduce((s,it)=>s+hargaPart(it)*(Number(it.Qty)||0), 0);
   const totalEstimasi = totalJasa + totalPart;
