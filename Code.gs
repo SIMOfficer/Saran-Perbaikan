@@ -47,7 +47,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v33-dashboard-perf-fix'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v34-tipejasa-keparahan'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -71,9 +71,9 @@ const HEADERS = {
   // Teknisi sendiri saat input awal, terpisah dari Estimasi_Harga yang diisi Partman belakangan.
   Item_Saran: ['ID_Item','ID_Kunjungan','Nama_Komponen','Qty','Keterangan_Teknisi',
     'Nomor_Part','Estimasi_Harga','Ketersediaan_Part','Keterangan_Partman','Foto_URL',
-    'Diisi_Teknisi_At','Diisi_Partman_At','Harga_Satuan_Teknisi'],
+    'Diisi_Teknisi_At','Diisi_Partman_At','Harga_Satuan_Teknisi','Tingkat_Keparahan'],
   // "Nama Jasa" di Saran Perbaikan - estimasi biaya jasa/pemasangan, terpisah dari harga part.
-  Item_Jasa: ['ID_Jasa','ID_Kunjungan','Nama_Jasa','Waktu','Harga_Satuan','Keterangan','Diisi_Teknisi_At'],
+  Item_Jasa: ['ID_Jasa','ID_Kunjungan','Nama_Jasa','Waktu','Harga_Satuan','Keterangan','Diisi_Teknisi_At','Tipe_Jasa'],
   // Daftar SSC per kunjungan (1 kunjungan bisa ikut beberapa campaign sekaligus).
   Item_SSC: ['ID_SSC','ID_Kunjungan','SSC','Status','Alasan','Diisi_Teknisi_At'],
   // Daftar Technical Information per kunjungan (1 kunjungan bisa punya beberapa baris).
@@ -299,7 +299,8 @@ function addItemSaran(body) {
   const sh = getSheet('Item_Saran');
   const id = 'IT-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000);
   sh.appendRow([id, body.idKunjungan, body.namaKomponen, body.qty, body.keterangan || '',
-    '', '', body.ketersediaanPart || '', '', body.fotoUrl || '', new Date(), '', body.hargaSatuan || '']);
+    '', '', body.ketersediaanPart || '', '', body.fotoUrl || '', new Date(), '', body.hargaSatuan || '',
+    body.tingkatKeparahan || '']);
   return { success: true, idItem: id };
 }
 
@@ -311,7 +312,7 @@ function addItemJasa(body) {
   const sh = getSheet('Item_Jasa');
   const id = 'JS-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000);
   sh.appendRow([id, body.idKunjungan, body.namaJasa, body.waktu || '', body.hargaSatuan || '',
-    body.keterangan || '', new Date()]);
+    body.keterangan || '', new Date(), body.tipeJasa || 'Reguler']);
   return { success: true, idJasa: id };
 }
 
