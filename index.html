@@ -1472,7 +1472,6 @@ function buildFollowUpWaMessage(kj, itemsJasa, items){
 
   return [
     `Selamat pagi Bpk/Ibu *${nama}*`,
-    '',
     `Kami dari Daya Toyota Bekasi, mengingatkan kembali saran perbaikan pada saat service *${tglService}* dengan rincian sbb :`,
     '',
     jasaLines.length ? jasaLines.join('\n') : '-',
@@ -1481,18 +1480,12 @@ function buildFollowUpWaMessage(kj, itemsJasa, items){
     '',
     `*Total Estimasi Harga: ${formatRupiah(totalEstimasi)}*`,
     '',
-    '',
     `Special untuk Bpk/Ibu *${nama}*, kami berikan *Diskon Jasa 10%* jika melakukan booking.`,
-    '',
     'Jika berkenan melakukan booking untuk perbaikan *silahkan menghubungi saya di nomor ini*.',
-    '',
     'Terima Kasih',
     '',
-    '',
     'Salam Hangat',
-    '',
     `*${currentSA || '-'}*`,
-    '',
     'Service Advisor'
   ].join('\n');
 }
