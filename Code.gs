@@ -47,7 +47,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v35-konfirmasi-edit-saran'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v36-free-check-ac-spooring'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -78,10 +78,16 @@ const HEADERS = {
   Item_SSC: ['ID_SSC','ID_Kunjungan','SSC','Status','Alasan','Diisi_Teknisi_At'],
   // Daftar Technical Information per kunjungan (1 kunjungan bisa punya beberapa baris).
   Item_TechnicalInfo: ['ID_TI','ID_Kunjungan','Technical_Information','Status','Alasan','Diisi_Teknisi_At'],
+  // Free Check Up AC & Free Check Spooring - berdiri sendiri (tidak terikat ID_Kunjungan),
+  // karena timing pengisiannya tidak tentu terhadap kunjungan servis utama (bisa sebelum atau
+  // sesudah). No_Polisi jadi kunci penghubung longgar kalau nanti mau dikorelasikan.
+  CheckAC: ['ID_CheckAC','Timestamp','No_Polisi','Jenis_Kendaraan','Teknisi',
+    'Wind_Speed','Kondisi_Filter_AC','Tekanan_Freon'],
+  CheckSpooring: ['ID_CheckSpooring','Timestamp','No_Polisi','Jenis_Kendaraan','Teknisi','Hasil_Pengecekan'],
   // Setiap kolom = 1 daftar pilihan dropdown (baris di bawah header = isi pilihan).
   // Kolom bisa punya jumlah baris berbeda-beda, sel kosong akan diabaikan.
   MasterData: ['Tipe_Mobil','Tipe_Service','Service_Advisor','Teknisi','SSC','Alasan_SSC',
-    'Technical_Information','Alasan_Technical','Foreman']
+    'Technical_Information','Alasan_Technical','Foreman','Teknisi_AC_Spooring']
 };
 
 function getSS() {
@@ -128,6 +134,8 @@ function setupSheets() {
   getSheet('Item_Jasa');
   getSheet('Item_SSC');
   getSheet('Item_TechnicalInfo');
+  getSheet('CheckAC');
+  getSheet('CheckSpooring');
   getSheet('MasterData');
 }
 
@@ -141,6 +149,8 @@ function doGet(e) {
       case 'getKunjungan': result = getKunjunganDetail(e.parameter.id); break;
       case 'dashboard': result = getDashboard(e.parameter); break;
       case 'masterData': result = getMasterData(); break;
+      case 'listCheckAC': result = listSheetRows('CheckAC'); break;
+      case 'listCheckSpooring': result = listSheetRows('CheckSpooring'); break;
       case 'version': result = { version: CODE_VERSION }; break;
       default: result = { error: 'Unknown action' };
     }
@@ -168,6 +178,8 @@ function doPost(e) {
       case 'uploadFoto': result = uploadFoto(body); break;
       case 'generateReport': result = generateReport(body.idKunjungan, body.namaForeman, body.printedBy); break;
       case 'updateFollowUp': result = updateFollowUp(body); break;
+      case 'createCheckAC': result = createCheckAC(body); break;
+      case 'createCheckSpooring': result = createCheckSpooring(body); break;
       default: result = { error: 'Unknown action' };
     }
     return jsonOut(result);
@@ -382,6 +394,31 @@ function getMasterData() {
     });
   });
   return result;
+}
+
+/** ============ FREE CHECK UP AC & FREE CHECK SPOORING ============
+ * Berdiri sendiri dari alur Kunjungan utama - teknisi AC/Spooring bisa mengisi kapan saja,
+ * tidak perlu ada kunjungan servis yang sedang berjalan untuk No. Polisi yang sama. */
+function listSheetRows(sheetName) {
+  const sh = getSheet(sheetName);
+  const data = sh.getDataRange().getValues();
+  const header = data.shift();
+  return data.map(r => rowToObj(header, r));
+}
+function createCheckAC(body) {
+  if (!body.noPolisi || !body.jenisKendaraan) return { error: 'No. Polisi dan Jenis Kendaraan wajib diisi' };
+  const sh = getSheet('CheckAC');
+  const id = 'CAC-' + new Date().getTime();
+  sh.appendRow([id, new Date(), body.noPolisi, body.jenisKendaraan, body.teknisi || '',
+    body.windSpeed || '', body.kondisiFilterAC || '', body.tekananFreon || '']);
+  return { success: true, id: id };
+}
+function createCheckSpooring(body) {
+  if (!body.noPolisi || !body.jenisKendaraan) return { error: 'No. Polisi dan Jenis Kendaraan wajib diisi' };
+  const sh = getSheet('CheckSpooring');
+  const id = 'CSP-' + new Date().getTime();
+  sh.appendRow([id, new Date(), body.noPolisi, body.jenisKendaraan, body.teknisi || '', body.hasilPengecekan || '']);
+  return { success: true, id: id };
 }
 
 /** ============ LIST & DETAIL ============ */
@@ -791,9 +828,26 @@ function getDashboard(params) {
     if (r.Status_FollowUp === 'Tidak Deal') bySA[sa].tidakDeal++;
   });
 
+  // Free Check Up AC & Free Check Spooring - hitung total & breakdown hari/minggu/bulan,
+  // sama seperti totalCustomer di atas.
+  const countByPeriod = checkRows => {
+    const c = { hariIni: 0, mingguIni: 0, bulanIni: 0, total: checkRows.length };
+    checkRows.forEach(r => {
+      const tgl = new Date(r.Timestamp);
+      if (tgl >= startOfDay) c.hariIni++;
+      if (tgl >= startOfWeek) c.mingguIni++;
+      if (tgl >= startOfMonth) c.bulanIni++;
+    });
+    return c;
+  };
+  const totalCheckAC = countByPeriod(listSheetRows('CheckAC'));
+  const totalCheckSpooring = countByPeriod(listSheetRows('CheckSpooring'));
+
   return {
     perSA: bySA,
     totalCustomer: { hariIni: totalCustomerHariIni, mingguIni: totalCustomerMingguIni, bulanIni: totalCustomerBulanIni },
-    totalKunjungan: rows.length
+    totalKunjungan: rows.length,
+    totalCheckAC: totalCheckAC,
+    totalCheckSpooring: totalCheckSpooring
   };
 }

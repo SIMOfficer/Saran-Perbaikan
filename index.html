@@ -164,6 +164,7 @@
         <option value="foreman">Login sebagai: Foreman</option>
         <option value="sa">Login sebagai: Service Advisor</option>
         <option value="kabengkel">Login sebagai: Kepala Bengkel</option>
+        <option value="freecheck">Login sebagai: Teknisi AC/Spooring</option>
       </select>
       <select id="saSwitch" style="display:none;width:auto;">
         <option value="">-- Pilih Nama SA --</option>
@@ -173,6 +174,9 @@
       </select>
       <select id="foremanSwitch" style="display:none;width:auto;">
         <option value="">-- Pilih Nama Foreman --</option>
+      </select>
+      <select id="freecheckSwitch" style="display:none;width:auto;">
+        <option value="">-- Pilih Nama Teknisi AC/Spooring --</option>
       </select>
     </div>
     <nav id="tabs"></nav>
@@ -198,6 +202,7 @@ let currentDetailId = null;
 let currentSA = "";
 let currentTeknisi = "";
 let currentForeman = "";
+let currentFreeCheck = "";
 let currentView = null;
 
 const ICON_STROKE = 'fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"';
@@ -215,19 +220,22 @@ const TABS = {
   foreman:   [["antrian","Antrian Perlu Dilengkapi","clipboardList"],["riwayatForeman","Riwayat","clock"]],
   sa:        [["konfirmasi","Perlu Dikonfirmasi","checkCircle"],["followup","Follow Up","clock"],["laporan","Kirim Report Customer","documentText"]],
   kabengkel: [["dashboard","Dashboard","buildingOffice"],["semua","Semua Kunjungan","clipboardList"]],
+  freecheck: [["checkac","Free Check Up AC","plusCircle"],["checkspooring","Free Check Spooring","plusCircle"],["riwayatcheck","Riwayat","clock"]],
 };
 const VIEW_TITLES = {
   input:"Input Saran Baru", riwayat:"Riwayat Saya", antrian:"Antrian Perlu Dilengkapi", riwayatForeman:"Riwayat",
   konfirmasi:"Perlu Dikonfirmasi", followup:"Follow Up", laporan:"Kirim Report Customer",
-  dashboard:"Dashboard", semua:"Semua Kunjungan"
+  dashboard:"Dashboard", semua:"Semua Kunjungan",
+  checkac:"Free Check Up AC", checkspooring:"Free Check Spooring", riwayatcheck:"Riwayat"
 };
-const ROLE_LABELS = { teknisi:"Teknisi", foreman:"Foreman", sa:"Service Advisor", kabengkel:"Kepala Bengkel" };
+const ROLE_LABELS = { teknisi:"Teknisi", foreman:"Foreman", sa:"Service Advisor", kabengkel:"Kepala Bengkel", freecheck:"Teknisi AC/Spooring" };
 
 document.getElementById('roleSwitch').addEventListener('change', e=>{
   currentRole = e.target.value;
   currentSA = "";
   currentTeknisi = "";
   currentForeman = "";
+  currentFreeCheck = "";
   updateIdentitySwitches();
   renderTabs();
 });
@@ -243,13 +251,19 @@ document.getElementById('foremanSwitch').addEventListener('change', e=>{
   currentForeman = e.target.value;
   render(currentView || TABS[currentRole][0][0]);
 });
+document.getElementById('freecheckSwitch').addEventListener('change', e=>{
+  currentFreeCheck = e.target.value;
+  render(currentView || TABS[currentRole][0][0]);
+});
 async function updateIdentitySwitches(){
   const saSwitch = document.getElementById('saSwitch');
   const teknisiSwitch = document.getElementById('teknisiSwitch');
   const foremanSwitch = document.getElementById('foremanSwitch');
+  const freecheckSwitch = document.getElementById('freecheckSwitch');
   saSwitch.style.display = currentRole === 'sa' ? '' : 'none';
   teknisiSwitch.style.display = currentRole === 'teknisi' ? '' : 'none';
   foremanSwitch.style.display = currentRole === 'foreman' ? '' : 'none';
+  freecheckSwitch.style.display = currentRole === 'freecheck' ? '' : 'none';
   if(currentRole === 'sa'){
     const md = await loadMasterData();
     saSwitch.innerHTML = optionList(md.Service_Advisor);
@@ -262,6 +276,10 @@ async function updateIdentitySwitches(){
     const md = await loadMasterData();
     foremanSwitch.innerHTML = optionList(md.Foreman);
     foremanSwitch.value = currentForeman;
+  } else if(currentRole === 'freecheck'){
+    const md = await loadMasterData();
+    freecheckSwitch.innerHTML = optionList(md.Teknisi_AC_Spooring);
+    freecheckSwitch.value = currentFreeCheck;
   }
 }
 
@@ -297,6 +315,7 @@ function render(view){
     (currentRole==='sa' && currentSA) ? ('SA: '+currentSA) :
     (currentRole==='teknisi' && currentTeknisi) ? ('Teknisi: '+currentTeknisi) :
     (currentRole==='foreman' && currentForeman) ? ('Foreman: '+currentForeman) :
+    (currentRole==='freecheck' && currentFreeCheck) ? ('Teknisi AC/Spooring: '+currentFreeCheck) :
     ('Login sebagai: '+(ROLE_LABELS[currentRole]||''));
   const app = document.getElementById('app');
   if(view==='input') return renderInputTeknisi(app);
@@ -308,6 +327,9 @@ function render(view){
   if(view==='laporan') return renderLaporan(app);
   if(view==='dashboard') return renderDashboard(app);
   if(view==='semua') return renderSemua(app);
+  if(view==='checkac') return renderCheckAC(app);
+  if(view==='checkspooring') return renderCheckSpooring(app);
+  if(view==='riwayatcheck') return renderRiwayatCheck(app);
 }
 function requireSA(app){
   if(currentSA) return true;
@@ -322,6 +344,11 @@ function requireTeknisi(app){
 function requireForeman(app){
   if(currentForeman) return true;
   app.innerHTML = '<div class="card"><p class="note">Pilih nama Foreman Anda dulu di sidebar.</p></div>';
+  return false;
+}
+function requireFreeCheck(app){
+  if(currentFreeCheck) return true;
+  app.innerHTML = '<div class="card"><p class="note">Pilih nama Teknisi AC/Spooring Anda dulu di sidebar.</p></div>';
   return false;
 }
 function statusBadgeClass(status){
@@ -425,7 +452,7 @@ async function loadMasterData(){
   if(masterData) return masterData;
   if(!masterDataPromise){
     masterDataPromise = api('masterData').then(md=>{
-      masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[], Foreman:[] };
+      masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[], Foreman:[], Teknisi_AC_Spooring:[] };
       return masterData;
     }).finally(()=>{ masterDataPromise = null; });
   }
@@ -1854,6 +1881,117 @@ async function renderLaporan(app){
   ], 'Tanggal_Masuk');
 }
 
+/* ---------- TEKNISI AC/SPOORING: free check ---------- */
+function goodNotGoodOptions(){
+  return '<option value="">-- Pilih --</option><option value="Good">Good</option><option value="Not Good">Not Good</option>';
+}
+async function renderCheckAC(app){
+  if(!requireFreeCheck(app)) return;
+  const md = await loadMasterData();
+  app.innerHTML = `
+  <div class="card">
+    <h3>Free Check Up AC</h3>
+    <div class="row">
+      <div><label class="req">Nomor Polisi Kendaraan</label><input id="cacNoPolisi" placeholder="B1234ABC" oninput="normalizeNoPolisi(this)"></div>
+      <div><label class="req">Jenis Kendaraan</label><select id="cacJenis">${optionList(md.Tipe_Mobil)}</select></div>
+    </div>
+    <h4 style="margin-top:16px;">Hasil Pengecekan</h4>
+    <div class="row">
+      <div><label class="req">Wind Speed</label><select id="cacWindSpeed">${goodNotGoodOptions()}</select></div>
+      <div><label class="req">Kondisi Filter AC</label><select id="cacFilter">${goodNotGoodOptions()}</select></div>
+      <div><label class="req">Tekanan Freon</label><select id="cacFreon">${goodNotGoodOptions()}</select></div>
+    </div>
+    <button class="primary" onclick="submitCheckAC(this)" style="margin-top:16px;">Simpan</button>
+  </div>`;
+}
+async function submitCheckAC(btn){
+  const noPolisi = document.getElementById('cacNoPolisi').value;
+  const jenisKendaraan = document.getElementById('cacJenis').value;
+  const windSpeed = document.getElementById('cacWindSpeed').value;
+  const kondisiFilterAC = document.getElementById('cacFilter').value;
+  const tekananFreon = document.getElementById('cacFreon').value;
+  if(!noPolisi || !jenisKendaraan || !windSpeed || !kondisiFilterAC || !tekananFreon){
+    alert('Semua field wajib diisi'); return;
+  }
+  btn.disabled = true; btn.textContent = 'Menyimpan...';
+  try{
+    const res = await api('createCheckAC','POST',{
+      noPolisi: noPolisi.toUpperCase().split(' ').join(''), jenisKendaraan, teknisi: currentFreeCheck,
+      windSpeed, kondisiFilterAC, tekananFreon
+    });
+    if(res.demo){ alert('Demo: data akan tersimpan setelah API terhubung.'); }
+    else if(res.success){ alert('Free Check Up AC tersimpan.'); render('checkac'); }
+    else alert('Gagal menyimpan: '+(res.error||'unknown error'));
+  } finally {
+    btn.disabled = false; btn.textContent = 'Simpan';
+  }
+}
+async function renderCheckSpooring(app){
+  if(!requireFreeCheck(app)) return;
+  const md = await loadMasterData();
+  app.innerHTML = `
+  <div class="card">
+    <h3>Free Check Spooring</h3>
+    <div class="row">
+      <div><label class="req">Nomor Polisi Kendaraan</label><input id="cspNoPolisi" placeholder="B1234ABC" oninput="normalizeNoPolisi(this)"></div>
+      <div><label class="req">Jenis Kendaraan</label><select id="cspJenis">${optionList(md.Tipe_Mobil)}</select></div>
+    </div>
+    <div class="row" style="margin-top:16px;">
+      <div><label class="req">Hasil Pengecekan</label><select id="cspHasil">${goodNotGoodOptions()}</select></div>
+    </div>
+    <button class="primary" onclick="submitCheckSpooring(this)" style="margin-top:16px;">Simpan</button>
+  </div>`;
+}
+async function submitCheckSpooring(btn){
+  const noPolisi = document.getElementById('cspNoPolisi').value;
+  const jenisKendaraan = document.getElementById('cspJenis').value;
+  const hasilPengecekan = document.getElementById('cspHasil').value;
+  if(!noPolisi || !jenisKendaraan || !hasilPengecekan){
+    alert('Semua field wajib diisi'); return;
+  }
+  btn.disabled = true; btn.textContent = 'Menyimpan...';
+  try{
+    const res = await api('createCheckSpooring','POST',{
+      noPolisi: noPolisi.toUpperCase().split(' ').join(''), jenisKendaraan, teknisi: currentFreeCheck, hasilPengecekan
+    });
+    if(res.demo){ alert('Demo: data akan tersimpan setelah API terhubung.'); }
+    else if(res.success){ alert('Free Check Spooring tersimpan.'); render('checkspooring'); }
+    else alert('Gagal menyimpan: '+(res.error||'unknown error'));
+  } finally {
+    btn.disabled = false; btn.textContent = 'Simpan';
+  }
+}
+async function renderRiwayatCheck(app){
+  if(!requireFreeCheck(app)) return;
+  app.innerHTML = `
+    <div class="card"><h3>Riwayat Free Check Up AC</h3><div id="riwayatCheckACTable">Memuat...</div></div>
+    <div class="card" style="margin-top:16px;"><h3>Riwayat Free Check Spooring</h3><div id="riwayatCheckSpooringTable">Memuat...</div></div>
+  `;
+  const [ac, spooring] = await Promise.all([api('listCheckAC'), api('listCheckSpooring')]);
+  if(!document.getElementById('riwayatCheckACTable')) return;
+  if(ac.demo || spooring.demo){
+    document.getElementById('riwayatCheckACTable').innerHTML = '<p class="note">Demo mode.</p>';
+    document.getElementById('riwayatCheckSpooringTable').innerHTML = '<p class="note">Demo mode.</p>';
+    return;
+  }
+  const mineAC = ac.filter(r=>r.Teknisi===currentFreeCheck);
+  const mineSpooring = spooring.filter(r=>r.Teknisi===currentFreeCheck);
+  dtInit('riwayatCheckACTable', mineAC, [
+    { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
+    { key:'Jenis_Kendaraan', label:'Jenis Kendaraan', filterable:true, filterType:'select' },
+    { key:'Timestamp', label:'Tanggal', filterable:false, render:r=>r.Timestamp?toDateInputValue(r.Timestamp):'-' },
+    { key:'Wind_Speed', label:'Wind Speed' },
+    { key:'Kondisi_Filter_AC', label:'Kondisi Filter AC' },
+    { key:'Tekanan_Freon', label:'Tekanan Freon' }
+  ], 'Timestamp', 'Belum ada riwayat.');
+  dtInit('riwayatCheckSpooringTable', mineSpooring, [
+    { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
+    { key:'Jenis_Kendaraan', label:'Jenis Kendaraan', filterable:true, filterType:'select' },
+    { key:'Timestamp', label:'Tanggal', filterable:false, render:r=>r.Timestamp?toDateInputValue(r.Timestamp):'-' },
+    { key:'Hasil_Pengecekan', label:'Hasil Pengecekan' }
+  ], 'Timestamp', 'Belum ada riwayat.');
+}
+
 /* ---------- KEPALA BENGKEL: dashboard ---------- */
 let dashboardState = { rows: [], filter: 'total' };
 async function renderDashboard(app){
@@ -1875,7 +2013,14 @@ async function renderDashboard(app){
     html += `<tr><td>${escapeHtml(sa)}</td><td>${v.hari}</td><td>${v.minggu}</td><td>${v.bulan}</td><td>${v.deal}</td><td>${v.tidakDeal}</td></tr>`;
   });
   html += `</table></div>
-  <div class="card"><h3>Daftar Kunjungan</h3><p class="note">Klik salah satu kartu di atas untuk memfilter tabel ini; klik lagi kartu yang sama untuk menampilkan semua.</p><div id="dashboardTable"></div></div>`;
+  <div class="card"><h3>Daftar Kunjungan</h3><p class="note">Klik salah satu kartu di atas untuk memfilter tabel ini; klik lagi kartu yang sama untuk menampilkan semua.</p><div id="dashboardTable"></div></div>
+  <div class="card" style="margin-top:16px;"><h3>Free Check Up AC &amp; Spooring</h3>
+  <div class="kpi">
+    <div class="box"><div class="num">${d.totalCheckAC.total}</div><div class="lbl">Total Check Up AC</div></div>
+    <div class="box"><div class="num">${d.totalCheckAC.hariIni}</div><div class="lbl">Check Up AC Hari Ini</div></div>
+    <div class="box"><div class="num">${d.totalCheckSpooring.total}</div><div class="lbl">Total Check Spooring</div></div>
+    <div class="box"><div class="num">${d.totalCheckSpooring.hariIni}</div><div class="lbl">Check Spooring Hari Ini</div></div>
+  </div></div>`;
   dash.innerHTML = html;
   renderDashboardTable();
 }
