@@ -47,7 +47,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v36-free-check-ac-spooring'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v37-backend-caching'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -123,6 +123,27 @@ function ensureHeader(sh, headers) {
 
   if (lastRow > 0) sh.insertRowBefore(1);
   sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+}
+
+/** ============ CACHE (mitigasi Apps Script yang gampang antre kalau dipakai banyak
+ *  orang bersamaan - "Execute as: Me" punya batas eksekusi/kuota bersamaan, jadi tiap
+ *  request yang tidak perlu baca Sheet penuh dari nol membantu mengurangi beban) ============
+ *  Cuma dipakai untuk data yang aman sedikit basi (dropdown master data, agregat
+ *  dashboard). listKunjungan SENGAJA tidak di-cache - banyak alur di frontend langsung
+ *  baca ulang setelah menyimpan (follow up, konfirmasi, edit Foreman, dll), jadi cache
+ *  di situ berisiko user melihat data basi setelah aksi mereka sendiri. */
+function getCached(key, ttlSeconds, computeFn) {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get(key);
+  if (hit) {
+    try { return JSON.parse(hit); } catch (e) { /* cache korup, hitung ulang di bawah */ }
+  }
+  const value = computeFn();
+  try {
+    const json = JSON.stringify(value);
+    if (json.length < 90000) cache.put(key, json, ttlSeconds); // batas CacheService ~100KB/value
+  } catch (e) { /* gagal simpan cache tidak boleh gagalkan response */ }
+  return value;
 }
 
 /** Setup awal - jalankan sekali manual dari editor Apps Script.
@@ -379,21 +400,23 @@ function uploadFoto(body) {
 
 /** ============ MASTER DATA (isi dropdown) ============ */
 function getMasterData() {
-  const sh = getSheet('MasterData');
-  const headers = HEADERS.MasterData;
-  const lastRow = sh.getLastRow();
-  const result = {};
-  headers.forEach(h => result[h] = []);
-  if (lastRow < 2) return result;
+  return getCached('masterData_v1', 300, () => {
+    const sh = getSheet('MasterData');
+    const headers = HEADERS.MasterData;
+    const lastRow = sh.getLastRow();
+    const result = {};
+    headers.forEach(h => result[h] = []);
+    if (lastRow < 2) return result;
 
-  const values = sh.getRange(2, 1, lastRow - 1, headers.length).getValues();
-  headers.forEach((h, col) => {
-    values.forEach(row => {
-      const v = row[col];
-      if (v !== '' && v !== null && v !== undefined) result[h].push(v);
+    const values = sh.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    headers.forEach((h, col) => {
+      values.forEach(row => {
+        const v = row[col];
+        if (v !== '' && v !== null && v !== undefined) result[h].push(v);
+      });
     });
+    return result;
   });
-  return result;
 }
 
 /** ============ FREE CHECK UP AC & FREE CHECK SPOORING ============
@@ -789,6 +812,9 @@ function updateFollowUp(body) {
 
 /** ============ DASHBOARD KEPALA BENGKEL ============ */
 function getDashboard(params) {
+  return getCached('dashboard_v1', 30, () => computeDashboard());
+}
+function computeDashboard() {
   const rows = listKunjungan({});
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
