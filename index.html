@@ -413,11 +413,23 @@ function dtRender(containerId){
 /* ---------- TEKNISI: input saran ---------- */
 let itemCount = 0;
 let masterData = null;
+let masterDataPromise = null;
+// updateIdentitySwitches() dan render*() sering memanggil loadMasterData() nyaris bersamaan
+// (mis. ganti role -> updateIdentitySwitches() jalan tanpa await, lalu renderTabs() langsung
+// memanggil render() yang juga await loadMasterData()). Tanpa dedupe di sini, keduanya sama-sama
+// melihat `masterData` masih null lalu SAMA-SAMA menembak fetch action=masterData sendiri-sendiri
+// - dan karena Apps Script memproses request masuk secara berurutan (bukan paralel), request
+// dobel ini saling antre dan bikin load terasa jauh lebih lama dari yang seharusnya, apalagi kalau
+// user keburu klak-klik pindah role lagi selagi masih loading (menambah antrean lagi).
 async function loadMasterData(){
   if(masterData) return masterData;
-  const md = await api('masterData');
-  masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[], Foreman:[] };
-  return masterData;
+  if(!masterDataPromise){
+    masterDataPromise = api('masterData').then(md=>{
+      masterData = (md && !md.error) ? md : { Tipe_Mobil:[], Tipe_Service:[], Service_Advisor:[], Teknisi:[], SSC:[], Alasan_SSC:[], Foreman:[] };
+      return masterData;
+    }).finally(()=>{ masterDataPromise = null; });
+  }
+  return masterDataPromise;
 }
 function normalizeNoPolisi(el){
   el.value = el.value.toUpperCase().split(' ').join('');
