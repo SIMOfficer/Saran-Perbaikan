@@ -47,7 +47,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v37-backend-caching'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v38-keepwarm-trigger'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -144,6 +144,32 @@ function getCached(key, ttlSeconds, computeFn) {
     if (json.length < 90000) cache.put(key, json, ttlSeconds); // batas CacheService ~100KB/value
   } catch (e) { /* gagal simpan cache tidak boleh gagalkan response */ }
   return value;
+}
+
+/** ============ KEEP-WARM TRIGGER ============
+ * Mitigasi "cold start" Apps Script: kalau script tidak dipanggil beberapa saat (mis.
+ * semalaman/istirahat), request pertama setelah itu kena biaya ekstra untuk menyalakan
+ * ulang instance-nya - ini kena walau tidak ada user lain yang pakai bersamaan (beda
+ * kasus dari getCached() di atas, yang cuma bantu request ke-2 dst dalam TTL cache).
+ * keepWarm() sengaja cuma buka spreadsheet (bagian termahal dari cold-start) tanpa baca
+ * data besar, dipanggil berkala oleh trigger terjadwal supaya instance-nya tetap "hangat"
+ * menjelang jam operasional.
+ *
+ * setupKeepWarmTrigger() WAJIB dijalankan SEKALI SECARA MANUAL dari editor Apps Script
+ * (pilih function ini di dropdown lalu klik Run) - Apps Script tidak mengizinkan trigger
+ * terjadwal dipasang otomatis tanpa izin eksplisit dari pemilik script. Aman dijalankan
+ * berulang kali - trigger lama untuk keepWarm() dihapus dulu supaya tidak dobel. */
+function keepWarm() {
+  SpreadsheetApp.openById(SPREADSHEET_ID);
+}
+function setupKeepWarmTrigger() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'keepWarm') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('keepWarm')
+    .timeBased()
+    .everyMinutes(10)
+    .create();
 }
 
 /** Setup awal - jalankan sekali manual dari editor Apps Script.
