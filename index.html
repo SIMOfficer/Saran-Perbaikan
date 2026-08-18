@@ -385,24 +385,57 @@ function buildBerandaFunnel(rows){
     { key:'dealSudahDatang', label:'Deal - Sudah Datang', count: rows.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang').length }
   ];
 }
-function buildBerandaOpportunity(rows, itemsJasa, itemsSaran){
-  const idsSudahDatang = new Set(rows.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang').map(r=>r.ID_Kunjungan));
+// Total nilai rupiah (jasa + part) dari kumpulan ID_Kunjungan tertentu - dipakai baik untuk
+// Opportunity (agregat) maupun Penambahan per Mekanik/Foreman/SA (breakdown), supaya
+// definisi harga part (Estimasi_Harga Foreman, fallback Harga_Satuan_Teknisi) konsisten.
+function berandaRevenueForIds(ids, itemsJasa, itemsSaran){
+  const idSet = ids instanceof Set ? ids : new Set(ids);
   let revenue = 0;
-  itemsJasa.forEach(j=>{ if(idsSudahDatang.has(j.ID_Kunjungan)) revenue += Number(j.Harga_Satuan)||0; });
+  itemsJasa.forEach(j=>{ if(idSet.has(j.ID_Kunjungan)) revenue += Number(j.Harga_Satuan)||0; });
   itemsSaran.forEach(it=>{
-    if(idsSudahDatang.has(it.ID_Kunjungan)){
+    if(idSet.has(it.ID_Kunjungan)){
       const harga = Number(it.Estimasi_Harga) || Number(it.Harga_Satuan_Teknisi) || 0;
       revenue += harga * (Number(it.Qty)||0);
     }
   });
-  return { unitEntry: idsSudahDatang.size, revenue };
+  return revenue;
+}
+// Opportunity = unit yang ada saran perbaikan (Perlu_FollowUp='Ya') TAPI BELUM berhasil
+// dideal-kan & didatangkan lagi oleh SA - begitu jadi "Deal - Sudah Datang", unit itu
+// keluar dari sini dan masuk ke buildBerandaPenambahan() di bawah (lihat definisi user).
+function buildBerandaOpportunity(rows, itemsJasa, itemsSaran){
+  const pending = rows.filter(r=>r.Perlu_FollowUp==='Ya' && r.Status_FollowUp!=='Deal - Sudah Datang');
+  const ids = pending.map(r=>r.ID_Kunjungan);
+  return { unit: pending.length, revenue: berandaRevenueForIds(ids, itemsJasa, itemsSaran) };
+}
+// Penambahan = unit saran perbaikan yang SUDAH berhasil dideal-kan & didatangkan kembali
+// oleh SA (realisasi dari Opportunity di atas), dipecah per Mekanik/Foreman/SA yang menangani.
+function buildBerandaPenambahan(rows, itemsJasa, itemsSaran, field){
+  const realized = rows.filter(r=>r.Perlu_FollowUp==='Ya' && r.Status_FollowUp==='Deal - Sudah Datang');
+  const byPerson = {};
+  realized.forEach(r=>{
+    const name = r[field] || '(Kosong)';
+    if(!byPerson[name]) byPerson[name] = [];
+    byPerson[name].push(r.ID_Kunjungan);
+  });
+  return Object.entries(byPerson)
+    .map(([name,ids])=>({ name, unit: ids.length, revenue: berandaRevenueForIds(ids, itemsJasa, itemsSaran) }))
+    .sort((a,b)=>b.unit-a.unit);
 }
 function berandaLeaderboardHtml(title, list){
   const rowsHtml = list.length ? list.slice(0,10).map((item,i)=>`
-    <div class="beranda-lb-row" data-name="${escapeHtml(item.name)}" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-default);cursor:pointer;">
+    <div class="beranda-lb-row" data-mode="leaderboard" data-name="${escapeHtml(item.name)}" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-default);cursor:pointer;">
       <span>${i+1}. ${escapeHtml(item.name)}</span>
       <b>${item.count}</b>
     </div>`).join('') : '<p class="note">Tidak ada data.</p>';
+  return `<div><h4 style="margin:0 0 8px;">${escapeHtml(title)}</h4>${rowsHtml}</div>`;
+}
+function berandaPenambahanHtml(title, list){
+  const rowsHtml = list.length ? list.slice(0,10).map((item,i)=>`
+    <div class="beranda-lb-row" data-mode="penambahan" data-name="${escapeHtml(item.name)}" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-default);cursor:pointer;">
+      <span>${i+1}. ${escapeHtml(item.name)}</span>
+      <span><b>${item.unit}</b> unit &middot; ${formatRupiah(item.revenue)}</span>
+    </div>`).join('') : '<p class="note">Belum ada penambahan.</p>';
   return `<div><h4 style="margin:0 0 8px;">${escapeHtml(title)}</h4>${rowsHtml}</div>`;
 }
 function renderBerandaContent(app){
@@ -419,6 +452,9 @@ function renderBerandaContent(app){
   const leaderboardForeman = buildBerandaLeaderboard(filtered, 'Nama_Foreman');
   const leaderboardSA = buildBerandaLeaderboard(filtered, 'SA');
   const opportunity = buildBerandaOpportunity(filtered, berandaState.itemsJasa, berandaState.itemsSaran);
+  const penambahanTeknisi = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Teknisi');
+  const penambahanForeman = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Nama_Foreman');
+  const penambahanSA = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'SA');
   const filterBtn = (key,label) => `<button type="button" class="secondary" onclick="setBerandaFilter('${key}')" style="${berandaState.filter===key?'background:var(--primary-50);color:var(--primary-700);font-weight:600;':''}">${label}</button>`;
 
   app.innerHTML = `
@@ -445,16 +481,27 @@ function renderBerandaContent(app){
     </div>
 
     <div class="card" style="margin-top:16px;">
-      <h3>Opportunity Penambahan</h3>
+      <h3>Opportunity</h3>
+      <p class="note">Unit yang ada saran perbaikan tapi belum berhasil di-deal &amp; didatangkan lagi oleh SA. Begitu berhasil, otomatis pindah ke "Penambahan" di bawah.</p>
       <div class="kpi">
-        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('dealSudahDatang', 'Unit Entry dari Follow Up')">
-          <div class="num">${opportunity.unitEntry}</div>
-          <div class="lbl">Unit Entry (dari Follow Up)</div>
+        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('opportunity', 'Opportunity - Belum Deal')">
+          <div class="num">${opportunity.unit}</div>
+          <div class="lbl">Opportunity Unit</div>
         </div>
-        <div class="box">
+        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('opportunity', 'Opportunity - Belum Deal')">
           <div class="num">${formatRupiah(opportunity.revenue)}</div>
-          <div class="lbl">Revenue (Estimasi Jasa + Part)</div>
+          <div class="lbl">Opportunity Revenue</div>
         </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3>Penambahan Unit &amp; Revenue Saran Perbaikan</h3>
+      <p class="note">Unit yang sudah berhasil di-deal &amp; didatangkan kembali oleh SA, dipecah berdasarkan Mekanik/Foreman/SA yang menangani. Klik nama untuk lihat unitnya.</p>
+      <div class="row">
+        ${berandaPenambahanHtml('Mekanik', penambahanTeknisi)}
+        ${berandaPenambahanHtml('Foreman', penambahanForeman)}
+        ${berandaPenambahanHtml('Service Advisor', penambahanSA)}
       </div>
     </div>
 
@@ -481,7 +528,10 @@ function renderBerandaContent(app){
     </div>
   `;
   [...document.querySelectorAll('.beranda-lb-row')].forEach(el=>{
-    el.addEventListener('click', ()=> showBerandaDrilldownByPerson(el.dataset.name));
+    el.addEventListener('click', ()=>{
+      if(el.dataset.mode === 'penambahan') showBerandaPenambahanDrilldown(el.dataset.name);
+      else showBerandaDrilldownByPerson(el.dataset.name);
+    });
   });
 }
 function setBerandaFilter(key){
@@ -498,6 +548,7 @@ function showBerandaDrilldown(key, label){
   else if(key === 'sudahFollowUp') rows = filtered.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum');
   else if(key === 'dealBelumDatang') rows = filtered.filter(r=>r.Status_FollowUp==='Deal - Belum Datang');
   else if(key === 'dealSudahDatang') rows = filtered.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang');
+  else if(key === 'opportunity') rows = filtered.filter(r=>r.Perlu_FollowUp==='Ya' && r.Status_FollowUp!=='Deal - Sudah Datang');
   else rows = [];
   renderBerandaDrilldownTable(rows, label);
 }
@@ -505,6 +556,12 @@ function showBerandaDrilldownByPerson(name){
   const filtered = berandaFilterRows(berandaState.rows, berandaState.filter);
   const rows = filtered.filter(r=> r.Teknisi===name || r.Nama_Foreman===name || r.SA===name);
   renderBerandaDrilldownTable(rows, name);
+}
+function showBerandaPenambahanDrilldown(name){
+  const filtered = berandaFilterRows(berandaState.rows, berandaState.filter);
+  const rows = filtered.filter(r=> r.Perlu_FollowUp==='Ya' && r.Status_FollowUp==='Deal - Sudah Datang' &&
+    (r.Teknisi===name || r.Nama_Foreman===name || r.SA===name));
+  renderBerandaDrilldownTable(rows, 'Penambahan - ' + name);
 }
 function renderBerandaDrilldownTable(rows, label){
   const panel = document.getElementById('berandaDrilldown');
