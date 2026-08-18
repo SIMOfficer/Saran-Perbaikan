@@ -123,6 +123,11 @@
   .items-table td,.items-table th{vertical-align:middle;}
   .items-table td input{margin:0;}
   .items-table td:nth-child(2) input{width:70px;}
+  /* Kolom lain (nama jasa/part, keterangan, dll) gampang kolaps jadi sangat sempit karena
+     input/select width:100% tanpa sinyal ukuran lain ke browser di dalam <table> - kasih
+     lebar minimum supaya tetap terbaca, kecuali kolom ke-2 yang memang sengaja sempit
+     (Waktu/Qty) di atas. */
+  .items-table td:not(:nth-child(2)) input,.items-table td:not(:nth-child(2)) select{min-width:130px;}
   #ban-merk-extra input{width:100%;}
   .row-remove{background:none;border:none;color:var(--primary-600);font-size:18px;line-height:1;cursor:pointer;padding:4px 8px;margin:0;}
   .kpi{display:flex;gap:16px;flex-wrap:wrap;}
@@ -160,6 +165,7 @@
     </div>
     <div class="sidebar-role">
       <select id="roleSwitch">
+        <option value="beranda">-- Pilih Menu Login --</option>
         <option value="teknisi">Login sebagai: Teknisi</option>
         <option value="foreman">Login sebagai: Foreman</option>
         <option value="sa">Login sebagai: Service Advisor</option>
@@ -197,7 +203,7 @@
    ============================================================ */
 const API_URL = "https://script.google.com/macros/s/AKfycbyWb1fyKjQqjigkPWeCqYWGUePO_1mobVKYK8mnNRAO5Er1zXTXk-3x3GXVuw1TB6nPvw/exec";
 
-let currentRole = "teknisi";
+let currentRole = "beranda";
 let currentDetailId = null;
 let currentSA = "";
 let currentTeknisi = "";
@@ -226,7 +232,8 @@ const VIEW_TITLES = {
   input:"Input Saran Baru", riwayat:"Riwayat Saya", antrian:"Antrian Perlu Dilengkapi", riwayatForeman:"Riwayat",
   konfirmasi:"Perlu Dikonfirmasi", followup:"Follow Up", laporan:"Kirim Report Customer",
   dashboard:"Dashboard", semua:"Semua Kunjungan",
-  checkac:"Free Check Up AC", checkspooring:"Free Check Spooring", riwayatcheck:"Riwayat"
+  checkac:"Free Check Up AC", checkspooring:"Free Check Spooring", riwayatcheck:"Riwayat",
+  beranda:"Beranda"
 };
 const ROLE_LABELS = { teknisi:"Teknisi", foreman:"Foreman", sa:"Service Advisor", kabengkel:"Kepala Bengkel", freecheck:"Teknisi AC/Spooring" };
 
@@ -286,6 +293,7 @@ async function updateIdentitySwitches(){
 function renderTabs(){
   const nav = document.getElementById('tabs');
   nav.innerHTML = '';
+  if(currentRole === 'beranda'){ render('beranda'); return; }
   TABS[currentRole].forEach(([key,label,icon],i)=>{
     const b = document.createElement('button');
     b.innerHTML = (ICONS[icon]||'') + '<span>' + label + '</span>';
@@ -312,12 +320,14 @@ function render(view){
   currentView = view;
   document.getElementById('pageTitle').textContent = VIEW_TITLES[view] || '';
   document.getElementById('topbarContext').textContent =
+    (currentRole==='beranda') ? '' :
     (currentRole==='sa' && currentSA) ? ('SA: '+currentSA) :
     (currentRole==='teknisi' && currentTeknisi) ? ('Teknisi: '+currentTeknisi) :
     (currentRole==='foreman' && currentForeman) ? ('Foreman: '+currentForeman) :
     (currentRole==='freecheck' && currentFreeCheck) ? ('Teknisi AC/Spooring: '+currentFreeCheck) :
     ('Login sebagai: '+(ROLE_LABELS[currentRole]||''));
   const app = document.getElementById('app');
+  if(view==='beranda') return renderBeranda(app);
   if(view==='input') return renderInputTeknisi(app);
   if(view==='riwayat') return renderRiwayatTeknisi(app);
   if(view==='antrian') return renderAntrianForeman(app);
@@ -330,6 +340,34 @@ function render(view){
   if(view==='checkac') return renderCheckAC(app);
   if(view==='checkspooring') return renderCheckSpooring(app);
   if(view==='riwayatcheck') return renderRiwayatCheck(app);
+}
+/* ---------- BERANDA (tampilan pembuka sebelum pilih role) ---------- */
+function renderBeranda(app){
+  const roleCards = [
+    ['teknisi','Teknisi','plusCircle'],
+    ['foreman','Foreman','clipboardList'],
+    ['sa','Service Advisor','checkCircle'],
+    ['kabengkel','Kepala Bengkel','buildingOffice'],
+    ['freecheck','Teknisi AC/Spooring','plusCircle']
+  ];
+  app.innerHTML = `
+    <div class="card">
+      <h3>Selamat Datang di DA-SAR</h3>
+      <p class="note">Dashboard ringkas akan segera hadir di sini. Untuk sekarang, silakan pilih menu login sesuai peran Anda:</p>
+    </div>
+    <div class="kpi" style="margin-top:16px;">
+      ${roleCards.map(([role,label,icon])=>`
+        <div class="box filterable" style="cursor:pointer;" onclick="goToRole('${role}')">
+          <div style="margin-bottom:6px;">${ICONS[icon]||''}</div>
+          <div class="lbl" style="font-size:15px;font-weight:600;">${label}</div>
+        </div>`).join('')}
+    </div>
+  `;
+}
+function goToRole(role){
+  const sel = document.getElementById('roleSwitch');
+  sel.value = role;
+  sel.dispatchEvent(new Event('change'));
 }
 function requireSA(app){
   if(currentSA) return true;
@@ -512,6 +550,18 @@ function toggleOther(selectEl){
 function readDropdownWithOther(selectEl){
   return selectEl.value === 'Others' ? selectEl.nextElementSibling.value : selectEl.value;
 }
+// Sama seperti setSelectValuePreserving, tapi untuk <select> bertipe optionListWithOther
+// (punya opsi "Others" + input teks pasangan) - kalau value tidak ada di daftar opsi baku,
+// pilih "Others" dan isi input teksnya, alih-alih menyisipkan opsi baru ke dropdown.
+function setSelectValueWithOther(selectEl, knownValues, value){
+  const otherInput = selectEl.nextElementSibling;
+  const isOther = value && !(knownValues||[]).includes(value);
+  selectEl.value = isOther ? 'Others' : (value || '');
+  if(otherInput){
+    otherInput.style.display = isOther ? '' : 'none';
+    otherInput.value = isOther ? value : '';
+  }
+}
 function checklistRow(key, label){
   const hargaCell = key === 'ban' ? '<td></td>' : `<td><input id="chk-harga-${key}" type="text" inputmode="numeric" oninput="formatRibuan(this)" style="display:none"></td>`;
   return `
@@ -576,7 +626,7 @@ function dataUnitCardHtml(md, today){
       <div><label>No. HP Customer</label><input id="noHp"></div>
     </div>
     <div class="row">
-      <div><label class="req">Tipe Mobil</label><select id="tipeMobil">${optionList(md.Tipe_Mobil)}</select></div>
+      <div><label class="req">Tipe Mobil</label><select id="tipeMobil" onchange="toggleOther(this)">${optionListWithOther(md.Tipe_Mobil)}</select><input id="tipeMobil-other" style="display:none;margin-top:6px;" placeholder="Sebutkan tipe mobil lain"></div>
       <div><label class="req">Tipe Service</label><select id="tipeService">${optionList(md.Tipe_Service)}</select></div>
       <div><label class="req">Tanggal Service</label><input id="tanggalService" type="date" value="${today}"></div>
     </div>
@@ -954,7 +1004,7 @@ async function submitKunjungan(){
       if(btn) btn.textContent = 'Menyimpan...';
     }
 
-    const tipeMobil = document.getElementById('tipeMobil').value;
+    const tipeMobil = readDropdownWithOther(document.getElementById('tipeMobil'));
     const tipeService = document.getElementById('tipeService').value;
     const tanggalService = document.getElementById('tanggalService').value;
     const sa = document.getElementById('sa').value;
@@ -1152,7 +1202,7 @@ async function openForemanEdit(id){
   document.getElementById('noPolisi').value = kj.No_Polisi || '';
   document.getElementById('namaCustomer').value = kj.Nama_Customer || '';
   document.getElementById('noHp').value = kj.No_HP_Customer || '';
-  setSelectValuePreserving(document.getElementById('tipeMobil'), kj.Tipe_Mobil);
+  setSelectValueWithOther(document.getElementById('tipeMobil'), md.Tipe_Mobil, kj.Tipe_Mobil);
   setSelectValuePreserving(document.getElementById('tipeService'), kj.Tipe_Service);
   document.getElementById('tanggalService').value = toDateInputValue(kj.Tanggal_Masuk);
   setSelectValuePreserving(document.getElementById('sa'), kj.SA);
@@ -1348,7 +1398,7 @@ async function collectAndSaveForemanChanges(){
     No_Polisi: document.getElementById('noPolisi').value.toUpperCase().split(' ').join(''),
     Nama_Customer: document.getElementById('namaCustomer').value,
     No_HP_Customer: document.getElementById('noHp').value,
-    Tipe_Mobil: document.getElementById('tipeMobil').value,
+    Tipe_Mobil: readDropdownWithOther(document.getElementById('tipeMobil')),
     Tipe_Service: document.getElementById('tipeService').value,
     Tanggal_Masuk: document.getElementById('tanggalService').value,
     SA: document.getElementById('sa').value,
@@ -1893,7 +1943,7 @@ async function renderCheckAC(app){
     <h3>Free Check Up AC</h3>
     <div class="row">
       <div><label class="req">Nomor Polisi Kendaraan</label><input id="cacNoPolisi" placeholder="B1234ABC" oninput="normalizeNoPolisi(this)"></div>
-      <div><label class="req">Jenis Kendaraan</label><select id="cacJenis">${optionList(md.Tipe_Mobil)}</select></div>
+      <div><label class="req">Jenis Kendaraan</label><select id="cacJenis" onchange="toggleOther(this)">${optionListWithOther(md.Tipe_Mobil)}</select><input id="cacJenis-other" style="display:none;margin-top:6px;" placeholder="Sebutkan jenis kendaraan lain"></div>
     </div>
     <h4 style="margin-top:16px;">Hasil Pengecekan</h4>
     <div class="row">
@@ -1906,7 +1956,7 @@ async function renderCheckAC(app){
 }
 async function submitCheckAC(btn){
   const noPolisi = document.getElementById('cacNoPolisi').value;
-  const jenisKendaraan = document.getElementById('cacJenis').value;
+  const jenisKendaraan = readDropdownWithOther(document.getElementById('cacJenis'));
   const windSpeed = document.getElementById('cacWindSpeed').value;
   const kondisiFilterAC = document.getElementById('cacFilter').value;
   const tekananFreon = document.getElementById('cacFreon').value;
@@ -1934,7 +1984,7 @@ async function renderCheckSpooring(app){
     <h3>Free Check Spooring</h3>
     <div class="row">
       <div><label class="req">Nomor Polisi Kendaraan</label><input id="cspNoPolisi" placeholder="B1234ABC" oninput="normalizeNoPolisi(this)"></div>
-      <div><label class="req">Jenis Kendaraan</label><select id="cspJenis">${optionList(md.Tipe_Mobil)}</select></div>
+      <div><label class="req">Jenis Kendaraan</label><select id="cspJenis" onchange="toggleOther(this)">${optionListWithOther(md.Tipe_Mobil)}</select><input id="cspJenis-other" style="display:none;margin-top:6px;" placeholder="Sebutkan jenis kendaraan lain"></div>
     </div>
     <div class="row" style="margin-top:16px;">
       <div><label class="req">Hasil Pengecekan</label><select id="cspHasil">${goodNotGoodOptions()}</select></div>
@@ -1944,7 +1994,7 @@ async function renderCheckSpooring(app){
 }
 async function submitCheckSpooring(btn){
   const noPolisi = document.getElementById('cspNoPolisi').value;
-  const jenisKendaraan = document.getElementById('cspJenis').value;
+  const jenisKendaraan = readDropdownWithOther(document.getElementById('cspJenis'));
   const hasilPengecekan = document.getElementById('cspHasil').value;
   if(!noPolisi || !jenisKendaraan || !hasilPengecekan){
     alert('Semua field wajib diisi'); return;
