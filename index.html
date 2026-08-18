@@ -128,6 +128,7 @@
      lebar minimum supaya tetap terbaca, kecuali kolom ke-2 yang memang sengaja sempit
      (Waktu/Qty) di atas. */
   .items-table td:not(:nth-child(2)) input,.items-table td:not(:nth-child(2)) select{min-width:130px;}
+  .beranda-lb-row:hover{background:var(--gray-50);}
   #ban-merk-extra input{width:100%;}
   .row-remove{background:none;border:none;color:var(--primary-600);font-size:18px;line-height:1;cursor:pointer;padding:4px 8px;margin:0;}
   .kpi{display:flex;gap:16px;flex-wrap:wrap;}
@@ -341,8 +342,70 @@ function render(view){
   if(view==='checkspooring') return renderCheckSpooring(app);
   if(view==='riwayatcheck') return renderRiwayatCheck(app);
 }
-/* ---------- BERANDA (tampilan pembuka sebelum pilih role) ---------- */
-function renderBeranda(app){
+/* ---------- BERANDA (tampilan pembuka sebelum pilih role - dashboard interaktif) ---------- */
+let berandaState = { rows: [], itemsJasa: [], itemsSaran: [], filter: 'overall' };
+async function renderBeranda(app){
+  app.innerHTML = `<div class="card"><p class="note">Memuat dashboard...</p></div>`;
+  const [rows, itemsJasa, itemsSaran] = await Promise.all([
+    api('listKunjungan'), api('listItemJasa'), api('listItemSaran')
+  ]);
+  if(!document.getElementById('app')) return; // user sudah pindah role sebelum data selesai dimuat
+  if(rows.demo || itemsJasa.demo || itemsSaran.demo){
+    app.innerHTML = '<div class="card"><p class="note">Demo mode - hubungkan API untuk data real.</p></div>';
+    return;
+  }
+  berandaState.rows = rows;
+  berandaState.itemsJasa = itemsJasa;
+  berandaState.itemsSaran = itemsSaran;
+  renderBerandaContent(app);
+}
+function berandaFilterRows(rows, filterKey){
+  if(filterKey === 'overall') return rows;
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfWeek = new Date(startOfDay.getTime() - startOfDay.getDay()*86400000);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const threshold = { hari: startOfDay, minggu: startOfWeek, bulan: startOfMonth }[filterKey];
+  return rows.filter(r=>r.Tanggal_Masuk && new Date(r.Tanggal_Masuk) >= threshold);
+}
+function buildBerandaLeaderboard(rows, field){
+  const counts = {};
+  rows.forEach(r=>{
+    const name = r[field] || '(Kosong)';
+    counts[name] = (counts[name]||0) + 1;
+  });
+  return Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name,count}));
+}
+function buildBerandaFunnel(rows){
+  return [
+    { key:'dikerjakan', label:'Unit Dikerjakan', count: rows.length },
+    { key:'disarankan', label:'Unit Disarankan', count: rows.filter(r=>r.Perlu_FollowUp==='Ya').length },
+    { key:'sudahFollowUp', label:'Sudah Follow Up', count: rows.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum').length },
+    { key:'dealBelumDatang', label:'Deal - Belum Datang', count: rows.filter(r=>r.Status_FollowUp==='Deal - Belum Datang').length },
+    { key:'dealSudahDatang', label:'Deal - Sudah Datang', count: rows.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang').length }
+  ];
+}
+function buildBerandaOpportunity(rows, itemsJasa, itemsSaran){
+  const idsSudahDatang = new Set(rows.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang').map(r=>r.ID_Kunjungan));
+  let revenue = 0;
+  itemsJasa.forEach(j=>{ if(idsSudahDatang.has(j.ID_Kunjungan)) revenue += Number(j.Harga_Satuan)||0; });
+  itemsSaran.forEach(it=>{
+    if(idsSudahDatang.has(it.ID_Kunjungan)){
+      const harga = Number(it.Estimasi_Harga) || Number(it.Harga_Satuan_Teknisi) || 0;
+      revenue += harga * (Number(it.Qty)||0);
+    }
+  });
+  return { unitEntry: idsSudahDatang.size, revenue };
+}
+function berandaLeaderboardHtml(title, list){
+  const rowsHtml = list.length ? list.slice(0,10).map((item,i)=>`
+    <div class="beranda-lb-row" data-name="${escapeHtml(item.name)}" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-default);cursor:pointer;">
+      <span>${i+1}. ${escapeHtml(item.name)}</span>
+      <b>${item.count}</b>
+    </div>`).join('') : '<p class="note">Tidak ada data.</p>';
+  return `<div><h4 style="margin:0 0 8px;">${escapeHtml(title)}</h4>${rowsHtml}</div>`;
+}
+function renderBerandaContent(app){
   const roleCards = [
     ['teknisi','Teknisi','plusCircle'],
     ['foreman','Foreman','clipboardList'],
@@ -350,19 +413,120 @@ function renderBeranda(app){
     ['kabengkel','Kepala Bengkel','buildingOffice'],
     ['freecheck','Teknisi AC/Spooring','plusCircle']
   ];
+  const filtered = berandaFilterRows(berandaState.rows, berandaState.filter);
+  const funnel = buildBerandaFunnel(filtered);
+  const leaderboardTeknisi = buildBerandaLeaderboard(filtered, 'Teknisi');
+  const leaderboardForeman = buildBerandaLeaderboard(filtered, 'Nama_Foreman');
+  const leaderboardSA = buildBerandaLeaderboard(filtered, 'SA');
+  const opportunity = buildBerandaOpportunity(filtered, berandaState.itemsJasa, berandaState.itemsSaran);
+  const filterBtn = (key,label) => `<button type="button" class="secondary" onclick="setBerandaFilter('${key}')" style="${berandaState.filter===key?'background:var(--primary-50);color:var(--primary-700);font-weight:600;':''}">${label}</button>`;
+
   app.innerHTML = `
     <div class="card">
       <h3>Selamat Datang di DA-SAR</h3>
-      <p class="note">Dashboard ringkas akan segera hadir di sini. Untuk sekarang, silakan pilih menu login sesuai peran Anda:</p>
+      <p class="note">Ringkasan performa seluruh unit yang tercatat di DA-SAR. Klik kartu funnel/leaderboard untuk lihat daftar unitnya.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        ${filterBtn('hari','Hari Ini')}
+        ${filterBtn('minggu','Minggu Ini')}
+        ${filterBtn('bulan','Bulan Ini')}
+        ${filterBtn('overall','Semua')}
+      </div>
     </div>
-    <div class="kpi" style="margin-top:16px;">
-      ${roleCards.map(([role,label,icon])=>`
-        <div class="box filterable" style="cursor:pointer;" onclick="goToRole('${role}')">
-          <div style="margin-bottom:6px;">${ICONS[icon]||''}</div>
-          <div class="lbl" style="font-size:15px;font-weight:600;">${label}</div>
-        </div>`).join('')}
+
+    <div class="card" style="margin-top:16px;">
+      <h3>Funnel Unit</h3>
+      <div class="kpi">
+        ${funnel.map(f=>`
+          <div class="box filterable" style="cursor:pointer;" onclick='showBerandaDrilldown("${f.key}", "${escapeHtml(f.label)}")'>
+            <div class="num">${f.count}</div>
+            <div class="lbl">${f.label}</div>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3>Opportunity Penambahan</h3>
+      <div class="kpi">
+        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('dealSudahDatang', 'Unit Entry dari Follow Up')">
+          <div class="num">${opportunity.unitEntry}</div>
+          <div class="lbl">Unit Entry (dari Follow Up)</div>
+        </div>
+        <div class="box">
+          <div class="num">${formatRupiah(opportunity.revenue)}</div>
+          <div class="lbl">Revenue (Estimasi Jasa + Part)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3>Leaderboard</h3>
+      <div class="row">
+        ${berandaLeaderboardHtml('Teknisi', leaderboardTeknisi)}
+        ${berandaLeaderboardHtml('Foreman', leaderboardForeman)}
+        ${berandaLeaderboardHtml('Service Advisor', leaderboardSA)}
+      </div>
+    </div>
+
+    <div id="berandaDrilldown"></div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3>Masuk ke Menu</h3>
+      <div class="kpi">
+        ${roleCards.map(([role,label,icon])=>`
+          <div class="box filterable" style="cursor:pointer;" onclick="goToRole('${role}')">
+            <div style="margin-bottom:6px;">${ICONS[icon]||''}</div>
+            <div class="lbl" style="font-size:15px;font-weight:600;">${label}</div>
+          </div>`).join('')}
+      </div>
     </div>
   `;
+  [...document.querySelectorAll('.beranda-lb-row')].forEach(el=>{
+    el.addEventListener('click', ()=> showBerandaDrilldownByPerson(el.dataset.name));
+  });
+}
+function setBerandaFilter(key){
+  berandaState.filter = key;
+  const panel = document.getElementById('berandaDrilldown');
+  if(panel) panel.innerHTML = '';
+  renderBerandaContent(document.getElementById('app'));
+}
+function showBerandaDrilldown(key, label){
+  const filtered = berandaFilterRows(berandaState.rows, berandaState.filter);
+  let rows;
+  if(key === 'dikerjakan') rows = filtered;
+  else if(key === 'disarankan') rows = filtered.filter(r=>r.Perlu_FollowUp==='Ya');
+  else if(key === 'sudahFollowUp') rows = filtered.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum');
+  else if(key === 'dealBelumDatang') rows = filtered.filter(r=>r.Status_FollowUp==='Deal - Belum Datang');
+  else if(key === 'dealSudahDatang') rows = filtered.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang');
+  else rows = [];
+  renderBerandaDrilldownTable(rows, label);
+}
+function showBerandaDrilldownByPerson(name){
+  const filtered = berandaFilterRows(berandaState.rows, berandaState.filter);
+  const rows = filtered.filter(r=> r.Teknisi===name || r.Nama_Foreman===name || r.SA===name);
+  renderBerandaDrilldownTable(rows, name);
+}
+function renderBerandaDrilldownTable(rows, label){
+  const panel = document.getElementById('berandaDrilldown');
+  if(!panel) return;
+  panel.innerHTML = `<div class="card" style="margin-top:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <h4 style="margin:0;">Detail: ${escapeHtml(label)}</h4>
+      <button type="button" class="secondary" onclick="document.getElementById('berandaDrilldown').innerHTML=''">Tutup</button>
+    </div>
+    <div id="berandaDrilldownTable"></div>
+  </div>`;
+  dtInit('berandaDrilldownTable', rows, [
+    { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
+    { key:'Nama_Customer', label:'Customer', filterable:true, filterType:'text' },
+    { key:'Tanggal_Masuk', label:'Tanggal', filterable:false, render:r=>r.Tanggal_Masuk?toDateInputValue(r.Tanggal_Masuk):'-' },
+    { key:'Teknisi', label:'Teknisi', filterable:true, filterType:'select' },
+    { key:'Nama_Foreman', label:'Foreman', filterable:true, filterType:'select' },
+    { key:'SA', label:'SA', filterable:true, filterType:'select' },
+    { key:'Status', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span>` },
+    { key:'Status_FollowUp', label:'Status Follow Up', filterable:true, filterType:'select' }
+  ], 'Tanggal_Masuk', 'Tidak ada data.');
+  panel.scrollIntoView({behavior:'smooth', block:'start'});
 }
 function goToRole(role){
   const sel = document.getElementById('roleSwitch');
