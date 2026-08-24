@@ -1990,7 +1990,7 @@ function dealBelumDatangCardHtml(r){
       <div class="note">Rencana datang: ${r.Tanggal_Rencana_Datang?toDateInputValue(r.Tanggal_Rencana_Datang):'-'} ${r.Jam_Rencana_Datang||''}</div>
       <div class="row" style="margin-top:8px;">
         <div><label>Tanggal Kedatangan</label><input type="date" id="kd-tgl-${r.ID_Kunjungan}" value="${toDateInputValue(new Date())}"></div>
-        <div><label>Nomor PKB DMS (5 digit terakhir)</label><input id="kd-pkb-${r.ID_Kunjungan}" maxlength="5" inputmode="numeric" placeholder="12345"></div>
+        <div><label>Nomor PKB DMS</label><input id="kd-pkb-${r.ID_Kunjungan}" placeholder="Tulis Sesuai Nomor PKB/WO di DMS"></div>
       </div>
       <button type="button" class="primary" onclick="saveKedatangan('${r.ID_Kunjungan}')">Simpan Kedatangan</button>
     </div>`;
@@ -2127,7 +2127,7 @@ async function saveKedatangan(id){
   const tgl = document.getElementById('kd-tgl-'+id).value;
   const pkb = document.getElementById('kd-pkb-'+id).value;
   if(!tgl){ alert('Tanggal kedatangan wajib diisi'); return; }
-  if(!pkb || pkb.length !== 5){ alert('Nomor PKB harus 5 digit'); return; }
+  if(!pkb){ alert('Nomor PKB/WO wajib diisi'); return; }
   const res = await api('updateRow','POST',{ sheet:'Kunjungan', id, fields:{
     Status_FollowUp: 'Deal - Sudah Datang', Tanggal_Kedatangan_Aktual: tgl, Nomor_PKB: pkb
   }});
