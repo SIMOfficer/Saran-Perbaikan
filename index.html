@@ -417,10 +417,29 @@ function berandaRevenueForIds(ids, itemsJasa, itemsSaran){
 // Opportunity = unit yang ada saran perbaikan TAPI BELUM berhasil dideal-kan & didatangkan
 // lagi oleh SA - begitu jadi "Deal - Sudah Datang", unit itu keluar dari sini dan masuk ke
 // buildBerandaPenambahan() di bawah (lihat definisi user).
+// "No Deal" (final) dan "Tidak Deal" (label lama, sebelum alur direct-to-final ini ada,
+// disamakan supaya data lama juga ikut terhitung) sama-sama berarti customer menolak.
+function berandaIsLost(status){
+  return status === 'No Deal' || status === 'Tidak Deal';
+}
 function buildBerandaOpportunity(rows, itemsJasa, itemsSaran, disarankanIds){
-  const pending = rows.filter(r=>disarankanIds.has(r.ID_Kunjungan) && r.Status_FollowUp!=='Deal - Sudah Datang');
+  const pending = rows.filter(r=>disarankanIds.has(r.ID_Kunjungan) && r.Status_FollowUp!=='Deal - Sudah Datang' && !berandaIsLost(r.Status_FollowUp));
   const ids = pending.map(r=>r.ID_Kunjungan);
   return { unit: pending.length, revenue: berandaRevenueForIds(ids, itemsJasa, itemsSaran) };
+}
+// Lost Opportunity = unit yang ada saran perbaikan tapi customer-nya menolak (No Deal) -
+// nilai jasa/part yang sudah pasti hilang, keluar permanen dari Opportunity di atas.
+function buildBerandaLostOpportunity(rows, itemsJasa, itemsSaran, disarankanIds){
+  const lost = rows.filter(r=>disarankanIds.has(r.ID_Kunjungan) && berandaIsLost(r.Status_FollowUp));
+  const ids = lost.map(r=>r.ID_Kunjungan);
+  return { unit: lost.length, revenue: berandaRevenueForIds(ids, itemsJasa, itemsSaran) };
+}
+// Won Opportunity = versi agregat dari Penambahan di bawah (total lintas Mekanik/Foreman/
+// SA) - unit yang berhasil dideal-kan & didatangkan kembali oleh SA.
+function buildBerandaWonOpportunity(rows, itemsJasa, itemsSaran, disarankanIds){
+  const won = rows.filter(r=>disarankanIds.has(r.ID_Kunjungan) && r.Status_FollowUp==='Deal - Sudah Datang');
+  const ids = won.map(r=>r.ID_Kunjungan);
+  return { unit: won.length, revenue: berandaRevenueForIds(ids, itemsJasa, itemsSaran) };
 }
 // Penambahan = unit saran perbaikan yang SUDAH berhasil dideal-kan & didatangkan kembali
 // oleh SA (realisasi dari Opportunity di atas), dipecah per Mekanik/Foreman/SA yang menangani.
@@ -467,6 +486,8 @@ function renderBerandaContent(app){
   const leaderboardForeman = buildBerandaLeaderboard(filtered, 'Nama_Foreman');
   const leaderboardSA = buildBerandaLeaderboard(filtered, 'SA');
   const opportunity = buildBerandaOpportunity(filtered, berandaState.itemsJasa, berandaState.itemsSaran, disarankanIds);
+  const lostOpportunity = buildBerandaLostOpportunity(filtered, berandaState.itemsJasa, berandaState.itemsSaran, disarankanIds);
+  const wonOpportunity = buildBerandaWonOpportunity(filtered, berandaState.itemsJasa, berandaState.itemsSaran, disarankanIds);
   const penambahanTeknisi = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Teknisi', disarankanIds);
   const penambahanForeman = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Nama_Foreman', disarankanIds);
   const penambahanSA = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'SA', disarankanIds);
@@ -497,7 +518,7 @@ function renderBerandaContent(app){
 
     <div class="card" style="margin-top:16px;">
       <h3>Opportunity</h3>
-      <p class="note">Unit yang ada saran perbaikan tapi belum berhasil di-deal &amp; didatangkan lagi oleh SA. Begitu berhasil, otomatis pindah ke "Penambahan" di bawah.</p>
+      <p class="note">Unit yang ada saran perbaikan tapi belum berhasil di-deal &amp; didatangkan lagi oleh SA. Begitu customer bilang "No Deal" atau berhasil datang, otomatis pindah ke Lost/Won Opportunity di sampingnya.</p>
       <div class="kpi">
         <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('opportunity', 'Opportunity - Belum Deal')">
           <div class="num">${opportunity.unit}</div>
@@ -506,6 +527,22 @@ function renderBerandaContent(app){
         <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('opportunity', 'Opportunity - Belum Deal')">
           <div class="num">${formatRupiah(opportunity.revenue)}</div>
           <div class="lbl">Opportunity Revenue</div>
+        </div>
+        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('lostOpportunity', 'Lost Opportunity - No Deal')">
+          <div class="num">${lostOpportunity.unit}</div>
+          <div class="lbl">Lost Opportunity Unit</div>
+        </div>
+        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('lostOpportunity', 'Lost Opportunity - No Deal')">
+          <div class="num">${formatRupiah(lostOpportunity.revenue)}</div>
+          <div class="lbl">Lost Opportunity Revenue</div>
+        </div>
+        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('wonOpportunity', 'Won Opportunity - Sudah Datang')">
+          <div class="num">${wonOpportunity.unit}</div>
+          <div class="lbl">Won Opportunity Unit</div>
+        </div>
+        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('wonOpportunity', 'Won Opportunity - Sudah Datang')">
+          <div class="num">${formatRupiah(wonOpportunity.revenue)}</div>
+          <div class="lbl">Won Opportunity Revenue</div>
         </div>
       </div>
     </div>
@@ -564,7 +601,9 @@ function showBerandaDrilldown(key, label){
   else if(key === 'sudahFollowUp') rows = disarankan.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum');
   else if(key === 'dealBelumDatang') rows = disarankan.filter(r=>r.Status_FollowUp==='Deal - Belum Datang');
   else if(key === 'dealSudahDatang') rows = disarankan.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang');
-  else if(key === 'opportunity') rows = disarankan.filter(r=>r.Status_FollowUp!=='Deal - Sudah Datang');
+  else if(key === 'opportunity') rows = disarankan.filter(r=>r.Status_FollowUp!=='Deal - Sudah Datang' && !berandaIsLost(r.Status_FollowUp));
+  else if(key === 'lostOpportunity') rows = disarankan.filter(r=>berandaIsLost(r.Status_FollowUp));
+  else if(key === 'wonOpportunity') rows = disarankan.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang');
   else rows = [];
   renderBerandaDrilldownTable(rows, label);
 }
@@ -1950,7 +1989,6 @@ function pendingFollowUpCardHtml(r, badgeLabel, badgeClass){
       <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
       ${r.No_HP_Customer ? ` (${escapeHtml(r.No_HP_Customer)} - <a href="#" onclick="openFollowUpWA('${r.ID_Kunjungan}'); return false;">Chat WA</a>)` : ''}
       <span class="badge ${badgeClass}">${badgeLabel}</span>
-      ${r.Status_FollowUp==='Tidak Deal' ? `<div class="note">Percobaan sebelumnya: Tidak Deal${r.Alasan_Tidak_Deal?' - '+escapeHtml(r.Alasan_Tidak_Deal):''}</div>` : ''}
       <div style="margin-top:8px;">
         <button type="button" class="secondary" onclick="toggleFollowUpDetail('${r.ID_Kunjungan}', this)">Lihat Saran Perbaikan</button>
         <div id="detail-${r.ID_Kunjungan}" style="display:none;margin-top:8px;"></div>
@@ -1983,10 +2021,8 @@ function pendingFollowUpCardHtml(r, badgeLabel, badgeClass){
             </select>
             <input id="fu-alasan-other-${r.ID_Kunjungan}" style="display:none" placeholder="Sebutkan alasan lain">
           </div>
-          <div><label>Follow Up Berikutnya</label>
-            <input type="date" id="fu-nextdate-${r.ID_Kunjungan}" value="${addDaysISO(r.Tanggal_FollowUp_Rencana, 14)}">
-          </div>
         </div>
+        <p class="note">Unit akan ditandai "No Deal" dan keluar dari antrian Follow Up (tetap bisa dilihat di riwayat).</p>
       </div>
       <div id="dealBlock-${r.ID_Kunjungan}" style="display:none;">
         <div class="row">
@@ -2020,14 +2056,18 @@ async function renderFollowUp(app){
   if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
   const todayStr = toDateInputValue(new Date());
   const mine = rows.filter(r=>r.SA===currentSA && r.Status==='Report Terkirim' && r.FollowUp_Dikonfirmasi==='Ya' && r.Perlu_FollowUp!=='Tidak');
-  const pendingStatuses = ['Belum','Tidak Deal'];
-  const pending = mine.filter(r=>pendingStatuses.includes(r.Status_FollowUp||'Belum'));
+  // Tidak Deal langsung final ("No Deal") - tidak lagi diantre ulang, jadi hanya status
+  // "Belum" yang masih aktif menunggu tindakan SA. "Tidak Deal" tetap dicek di sini supaya
+  // data lama (sebelum perubahan ini) yang masih berstatus "Tidak Deal" tidak nyangkut di
+  // antrian aktif - langsung dianggap setara "No Deal" juga.
+  const pending = mine.filter(r=>(r.Status_FollowUp||'Belum') === 'Belum');
   const rencanaStr = r => toDateInputValue(r.Tanggal_FollowUp_Rencana);
   const todayList = pending.filter(r=>rencanaStr(r) === todayStr);
   const overdueList = pending.filter(r=>rencanaStr(r) && rencanaStr(r) < todayStr);
   const upcomingList = pending.filter(r=>rencanaStr(r) && rencanaStr(r) > todayStr);
   const dealBelumDatang = mine.filter(r=>r.Status_FollowUp === 'Deal - Belum Datang');
   const dealMingguList = mine.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang' && isThisWeek(r.Tanggal_Kedatangan_Aktual));
+  const noDealList = mine.filter(r=>r.Status_FollowUp==='No Deal' || r.Status_FollowUp==='Tidak Deal');
   const pendingConfirmCount = rows.filter(r=>r.Status==='Report Terkirim' && r.SA===currentSA && r.FollowUp_Dikonfirmasi!=='Ya' && r.Perlu_FollowUp!=='Tidak').length;
 
   const decorate = (arr, kategori, badgeLabel, badgeClass) => arr.map(r=>({ ...r, _kategori:kategori, _badgeLabel:badgeLabel, _badgeClass:badgeClass }));
@@ -2036,7 +2076,8 @@ async function renderFollowUp(app){
     ...decorate(overdueList, 'overdue', 'Lewat Jatuh Tempo', 'overdue'),
     ...decorate(upcomingList, 'upcoming', 'Belum Jatuh Tempo', 'wait'),
     ...decorate(dealBelumDatang, 'dealBelumDatang', 'Deal - Belum Datang', 'sent'),
-    ...decorate(dealMingguList, 'dealMinggu', 'Deal - Sudah Datang', 'sent')
+    ...decorate(dealMingguList, 'dealMinggu', 'Deal - Sudah Datang', 'sent'),
+    ...decorate(noDealList, 'noDeal', 'No Deal', 'overdue')
   ];
   followUpState.filter = null;
 
@@ -2048,6 +2089,7 @@ async function renderFollowUp(app){
       <div class="box filterable" data-key="upcoming" onclick="setFollowUpFilter('upcoming')"><div class="num">${upcomingList.length}</div><div class="lbl">Belum Jatuh Tempo</div></div>
       <div class="box info filterable" data-key="dealBelumDatang" onclick="setFollowUpFilter('dealBelumDatang')"><div class="num">${dealBelumDatang.length}</div><div class="lbl">Deal Belum Datang</div></div>
       <div class="box success filterable" data-key="dealMinggu" onclick="setFollowUpFilter('dealMinggu')"><div class="num">${dealMingguList.length}</div><div class="lbl">Deal Minggu Ini</div></div>
+      <div class="box filterable" data-key="noDeal" onclick="setFollowUpFilter('noDeal')"><div class="num">${noDealList.length}</div><div class="lbl">No Deal</div></div>
     </div>
     <p class="note">Klik salah satu kartu di atas untuk memfilter tabel di bawah; klik lagi kartu yang sama untuk menampilkan semua. Klik "Update" pada baris untuk mengubah status follow up-nya - baris lain tidak akan terbuka.</p>
     <div id="followUpEditPanel"></div>
@@ -2082,15 +2124,14 @@ function renderFollowUpTable(){
     },
     { key:'_badgeLabel', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${r._badgeClass}">${escapeHtml(r._badgeLabel)}</span>` },
     { key:'_info', label:'Info', sortable:false, filterable:false, render:followUpInfoText },
-    { key:'aksi', label:'', sortable:false, filterable:false, render:r=> r.Status_FollowUp==='Deal - Sudah Datang' ? '-' : `<button type="button" class="secondary" onclick="openFollowUpEdit('${r.ID_Kunjungan}')">Update</button>` }
+    { key:'aksi', label:'', sortable:false, filterable:false, render:r=> (r._kategori==='dealMinggu' || r._kategori==='noDeal') ? '-' : `<button type="button" class="secondary" onclick="openFollowUpEdit('${r.ID_Kunjungan}')">Update</button>` }
   ], 'No_Polisi', 'Tidak ada data follow up.');
 }
 function followUpInfoText(r){
   if(r._kategori==='dealBelumDatang') return 'Rencana datang: ' + (r.Tanggal_Rencana_Datang?toDateInputValue(r.Tanggal_Rencana_Datang):'-') + ' ' + (r.Jam_Rencana_Datang||'');
   if(r._kategori==='dealMinggu') return 'Datang: ' + (r.Tanggal_Kedatangan_Aktual?toDateInputValue(r.Tanggal_Kedatangan_Aktual):'-') + (r.Nomor_PKB?' - PKB '+escapeHtml(r.Nomor_PKB):'');
-  let txt = 'Rencana FU: ' + (r.Tanggal_FollowUp_Rencana?toDateInputValue(r.Tanggal_FollowUp_Rencana):'-');
-  if(r.Status_FollowUp==='Tidak Deal') txt += ' (sebelumnya Tidak Deal)';
-  return txt;
+  if(r._kategori==='noDeal') return r.Alasan_Tidak_Deal ? 'Alasan: '+escapeHtml(r.Alasan_Tidak_Deal) : '-';
+  return 'Rencana FU: ' + (r.Tanggal_FollowUp_Rencana?toDateInputValue(r.Tanggal_FollowUp_Rencana):'-');
 }
 function openFollowUpEdit(id){
   const r = followUpState.rows.find(x=>x.ID_Kunjungan===id);
@@ -2124,10 +2165,10 @@ async function saveFollowUpOutcome(id){
   if(status === 'Tidak Deal'){
     const alasan = readDropdownWithOther(document.getElementById('fu-alasan-'+id));
     if(!alasan){ alert('Pilih alasan Tidak Deal dulu'); return; }
-    const nextDate = document.getElementById('fu-nextdate-'+id).value;
-    if(!nextDate){ alert('Tanggal follow up berikutnya wajib diisi'); return; }
+    // Tidak Deal langsung final - tidak ada lagi jadwal follow up berikutnya, unit keluar
+    // dari antrian aktif (lihat pendingStatuses di renderFollowUp) tapi tetap ada di riwayat.
+    fields.Status_FollowUp = 'No Deal';
     fields.Alasan_Tidak_Deal = alasan;
-    fields.Tanggal_FollowUp_Rencana = nextDate;
   } else if(status === 'Deal'){
     const tglDatang = document.getElementById('fu-tgldatang-'+id).value;
     if(!tglDatang){ alert('Tanggal rencana datang wajib diisi'); return; }
@@ -2301,6 +2342,16 @@ async function renderDashboard(app){
   });
   html += `</table></div>
   <div class="card"><h3>Daftar Kunjungan</h3><p class="note">Klik salah satu kartu di atas untuk memfilter tabel ini; klik lagi kartu yang sama untuk menampilkan semua.</p><div id="dashboardTable"></div></div>
+  <div class="card" style="margin-top:16px;"><h3>Opportunity</h3>
+  <p class="note">Sama seperti di Beranda - unit yang ada saran perbaikan (Opportunity: masih menunggu, Lost: customer bilang No Deal, Won: berhasil didatangkan kembali).</p>
+  <div class="kpi">
+    <div class="box"><div class="num">${d.opportunity.unit}</div><div class="lbl">Opportunity Unit</div></div>
+    <div class="box"><div class="num">${formatRupiah(d.opportunity.revenue)}</div><div class="lbl">Opportunity Revenue</div></div>
+    <div class="box"><div class="num">${d.lostOpportunity.unit}</div><div class="lbl">Lost Opportunity Unit</div></div>
+    <div class="box"><div class="num">${formatRupiah(d.lostOpportunity.revenue)}</div><div class="lbl">Lost Opportunity Revenue</div></div>
+    <div class="box"><div class="num">${d.wonOpportunity.unit}</div><div class="lbl">Won Opportunity Unit</div></div>
+    <div class="box"><div class="num">${formatRupiah(d.wonOpportunity.revenue)}</div><div class="lbl">Won Opportunity Revenue</div></div>
+  </div></div>
   <div class="card" style="margin-top:16px;"><h3>Free Check Up AC &amp; Spooring</h3>
   <div class="kpi">
     <div class="box"><div class="num">${d.totalCheckAC.total}</div><div class="lbl">Total Check Up AC</div></div>
