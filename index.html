@@ -520,29 +520,20 @@ function renderBerandaContent(app){
       <h3>Opportunity</h3>
       <p class="note">Unit yang ada saran perbaikan tapi belum berhasil di-deal &amp; didatangkan lagi oleh SA. Begitu customer bilang "No Deal" atau berhasil datang, otomatis pindah ke Lost/Won Opportunity di sampingnya.</p>
       <div class="kpi">
-        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('opportunity', 'Opportunity - Belum Deal')">
+        <div class="box filterable info" style="cursor:pointer;" onclick="showBerandaDrilldown('opportunity', 'Opportunity - Belum Deal')">
           <div class="num">${opportunity.unit}</div>
           <div class="lbl">Opportunity Unit</div>
-        </div>
-        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('opportunity', 'Opportunity - Belum Deal')">
-          <div class="num">${formatRupiah(opportunity.revenue)}</div>
-          <div class="lbl">Opportunity Revenue</div>
+          <div class="note" style="margin-top:6px;">${formatRupiah(opportunity.revenue)}</div>
         </div>
         <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('lostOpportunity', 'Lost Opportunity - No Deal')">
           <div class="num">${lostOpportunity.unit}</div>
           <div class="lbl">Lost Opportunity Unit</div>
+          <div class="note" style="margin-top:6px;">${formatRupiah(lostOpportunity.revenue)}</div>
         </div>
-        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('lostOpportunity', 'Lost Opportunity - No Deal')">
-          <div class="num">${formatRupiah(lostOpportunity.revenue)}</div>
-          <div class="lbl">Lost Opportunity Revenue</div>
-        </div>
-        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('wonOpportunity', 'Won Opportunity - Sudah Datang')">
+        <div class="box filterable success" style="cursor:pointer;" onclick="showBerandaDrilldown('wonOpportunity', 'Won Opportunity - Sudah Datang')">
           <div class="num">${wonOpportunity.unit}</div>
           <div class="lbl">Won Opportunity Unit</div>
-        </div>
-        <div class="box filterable" style="cursor:pointer;" onclick="showBerandaDrilldown('wonOpportunity', 'Won Opportunity - Sudah Datang')">
-          <div class="num">${formatRupiah(wonOpportunity.revenue)}</div>
-          <div class="lbl">Won Opportunity Revenue</div>
+          <div class="note" style="margin-top:6px;">${formatRupiah(wonOpportunity.revenue)}</div>
         </div>
       </div>
     </div>
@@ -2345,12 +2336,9 @@ async function renderDashboard(app){
   <div class="card" style="margin-top:16px;"><h3>Opportunity</h3>
   <p class="note">Sama seperti di Beranda - unit yang ada saran perbaikan (Opportunity: masih menunggu, Lost: customer bilang No Deal, Won: berhasil didatangkan kembali).</p>
   <div class="kpi">
-    <div class="box"><div class="num">${d.opportunity.unit}</div><div class="lbl">Opportunity Unit</div></div>
-    <div class="box"><div class="num">${formatRupiah(d.opportunity.revenue)}</div><div class="lbl">Opportunity Revenue</div></div>
-    <div class="box"><div class="num">${d.lostOpportunity.unit}</div><div class="lbl">Lost Opportunity Unit</div></div>
-    <div class="box"><div class="num">${formatRupiah(d.lostOpportunity.revenue)}</div><div class="lbl">Lost Opportunity Revenue</div></div>
-    <div class="box"><div class="num">${d.wonOpportunity.unit}</div><div class="lbl">Won Opportunity Unit</div></div>
-    <div class="box"><div class="num">${formatRupiah(d.wonOpportunity.revenue)}</div><div class="lbl">Won Opportunity Revenue</div></div>
+    <div class="box info"><div class="num">${d.opportunity.unit}</div><div class="lbl">Opportunity Unit</div><div class="note" style="margin-top:6px;">${formatRupiah(d.opportunity.revenue)}</div></div>
+    <div class="box"><div class="num">${d.lostOpportunity.unit}</div><div class="lbl">Lost Opportunity Unit</div><div class="note" style="margin-top:6px;">${formatRupiah(d.lostOpportunity.revenue)}</div></div>
+    <div class="box success"><div class="num">${d.wonOpportunity.unit}</div><div class="lbl">Won Opportunity Unit</div><div class="note" style="margin-top:6px;">${formatRupiah(d.wonOpportunity.revenue)}</div></div>
   </div></div>
   <div class="card" style="margin-top:16px;"><h3>Free Check Up AC &amp; Spooring</h3>
   <div class="kpi">
