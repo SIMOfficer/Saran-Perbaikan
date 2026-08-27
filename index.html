@@ -357,7 +357,18 @@ async function renderBeranda(app){
   berandaState.rows = rows;
   berandaState.itemsJasa = itemsJasa;
   berandaState.itemsSaran = itemsSaran;
+  berandaState.disarankanIds = berandaDisarankanIds(itemsJasa, itemsSaran);
   renderBerandaContent(app);
+}
+// "Disarankan" dihitung dari keberadaan baris Item_Jasa/Item_Saran ASLI, bukan field
+// Perlu_FollowUp - field itu ternyata tidak bisa diandalkan (banyak kunjungan lama dengan
+// Status_FollowUp sudah Deal/Tidak Deal, jelas-jelas punya baris Jasa/Part, tapi
+// Perlu_FollowUp-nya kosong). Ground truth-nya adalah data item itu sendiri.
+function berandaDisarankanIds(itemsJasa, itemsSaran){
+  const ids = new Set();
+  itemsJasa.forEach(j=>{ if(j.ID_Kunjungan) ids.add(j.ID_Kunjungan); });
+  itemsSaran.forEach(it=>{ if(it.ID_Kunjungan) ids.add(it.ID_Kunjungan); });
+  return ids;
 }
 function berandaFilterRows(rows, filterKey){
   if(filterKey === 'overall') return rows;
@@ -377,11 +388,9 @@ function buildBerandaLeaderboard(rows, field){
   return Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name,count}));
 }
 // Setiap tahap di bawah "Unit Disarankan" HARUS dihitung dari populasi "disarankan" itu
-// sendiri (bukan dari `rows` mentah), supaya funnel selalu turun/sama - kalau tidak, data
-// lama yang Status_FollowUp-nya sudah terisi tapi Perlu_FollowUp-nya kosong (mis. dari
-// sebelum field itu ada) bisa bikin "Sudah Follow Up" lebih besar dari "Unit Disarankan".
-function buildBerandaFunnel(rows){
-  const disarankan = rows.filter(r=>r.Perlu_FollowUp==='Ya');
+// sendiri (bukan dari `rows` mentah), supaya funnel selalu turun/sama.
+function buildBerandaFunnel(rows, disarankanIds){
+  const disarankan = rows.filter(r=>disarankanIds.has(r.ID_Kunjungan));
   return [
     { key:'dikerjakan', label:'Unit Dikerjakan', count: rows.length },
     { key:'disarankan', label:'Unit Disarankan', count: disarankan.length },
@@ -405,18 +414,18 @@ function berandaRevenueForIds(ids, itemsJasa, itemsSaran){
   });
   return revenue;
 }
-// Opportunity = unit yang ada saran perbaikan (Perlu_FollowUp='Ya') TAPI BELUM berhasil
-// dideal-kan & didatangkan lagi oleh SA - begitu jadi "Deal - Sudah Datang", unit itu
-// keluar dari sini dan masuk ke buildBerandaPenambahan() di bawah (lihat definisi user).
-function buildBerandaOpportunity(rows, itemsJasa, itemsSaran){
-  const pending = rows.filter(r=>r.Perlu_FollowUp==='Ya' && r.Status_FollowUp!=='Deal - Sudah Datang');
+// Opportunity = unit yang ada saran perbaikan TAPI BELUM berhasil dideal-kan & didatangkan
+// lagi oleh SA - begitu jadi "Deal - Sudah Datang", unit itu keluar dari sini dan masuk ke
+// buildBerandaPenambahan() di bawah (lihat definisi user).
+function buildBerandaOpportunity(rows, itemsJasa, itemsSaran, disarankanIds){
+  const pending = rows.filter(r=>disarankanIds.has(r.ID_Kunjungan) && r.Status_FollowUp!=='Deal - Sudah Datang');
   const ids = pending.map(r=>r.ID_Kunjungan);
   return { unit: pending.length, revenue: berandaRevenueForIds(ids, itemsJasa, itemsSaran) };
 }
 // Penambahan = unit saran perbaikan yang SUDAH berhasil dideal-kan & didatangkan kembali
 // oleh SA (realisasi dari Opportunity di atas), dipecah per Mekanik/Foreman/SA yang menangani.
-function buildBerandaPenambahan(rows, itemsJasa, itemsSaran, field){
-  const realized = rows.filter(r=>r.Perlu_FollowUp==='Ya' && r.Status_FollowUp==='Deal - Sudah Datang');
+function buildBerandaPenambahan(rows, itemsJasa, itemsSaran, field, disarankanIds){
+  const realized = rows.filter(r=>disarankanIds.has(r.ID_Kunjungan) && r.Status_FollowUp==='Deal - Sudah Datang');
   const byPerson = {};
   realized.forEach(r=>{
     const name = r[field] || '(Kosong)';
@@ -452,14 +461,15 @@ function renderBerandaContent(app){
     ['freecheck','Teknisi AC/Spooring','plusCircle']
   ];
   const filtered = berandaFilterRows(berandaState.rows, berandaState.filter);
-  const funnel = buildBerandaFunnel(filtered);
+  const disarankanIds = berandaState.disarankanIds;
+  const funnel = buildBerandaFunnel(filtered, disarankanIds);
   const leaderboardTeknisi = buildBerandaLeaderboard(filtered, 'Teknisi');
   const leaderboardForeman = buildBerandaLeaderboard(filtered, 'Nama_Foreman');
   const leaderboardSA = buildBerandaLeaderboard(filtered, 'SA');
-  const opportunity = buildBerandaOpportunity(filtered, berandaState.itemsJasa, berandaState.itemsSaran);
-  const penambahanTeknisi = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Teknisi');
-  const penambahanForeman = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Nama_Foreman');
-  const penambahanSA = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'SA');
+  const opportunity = buildBerandaOpportunity(filtered, berandaState.itemsJasa, berandaState.itemsSaran, disarankanIds);
+  const penambahanTeknisi = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Teknisi', disarankanIds);
+  const penambahanForeman = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Nama_Foreman', disarankanIds);
+  const penambahanSA = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'SA', disarankanIds);
   const filterBtn = (key,label) => `<button type="button" class="secondary" onclick="setBerandaFilter('${key}')" style="${berandaState.filter===key?'background:var(--primary-50);color:var(--primary-700);font-weight:600;':''}">${label}</button>`;
 
   app.innerHTML = `
@@ -547,7 +557,7 @@ function setBerandaFilter(key){
 }
 function showBerandaDrilldown(key, label){
   const filtered = berandaFilterRows(berandaState.rows, berandaState.filter);
-  const disarankan = filtered.filter(r=>r.Perlu_FollowUp==='Ya');
+  const disarankan = filtered.filter(r=>berandaState.disarankanIds.has(r.ID_Kunjungan));
   let rows;
   if(key === 'dikerjakan') rows = filtered;
   else if(key === 'disarankan') rows = disarankan;
@@ -565,7 +575,7 @@ function showBerandaDrilldownByPerson(name){
 }
 function showBerandaPenambahanDrilldown(name){
   const filtered = berandaFilterRows(berandaState.rows, berandaState.filter);
-  const rows = filtered.filter(r=> r.Perlu_FollowUp==='Ya' && r.Status_FollowUp==='Deal - Sudah Datang' &&
+  const rows = filtered.filter(r=> berandaState.disarankanIds.has(r.ID_Kunjungan) && r.Status_FollowUp==='Deal - Sudah Datang' &&
     (r.Teknisi===name || r.Nama_Foreman===name || r.SA===name));
   renderBerandaDrilldownTable(rows, 'Penambahan - ' + name);
 }
