@@ -2279,7 +2279,7 @@ async function renderDashboard(app){
     <div class="box filterable" data-key="bulan" onclick="setDashboardFilter('bulan')"><div class="num">${d.totalCustomer.bulanIni}</div><div class="lbl">Customer Bulan Ini</div></div>
   </div>
   <div class="card"><h3>Rekap per Service Advisor</h3>
-  <table><tr><th>SA</th><th>Saran Hari Ini</th><th>Saran Minggu Ini</th><th>Saran Bulan Ini</th><th>Deal</th><th>Tidak Deal</th></tr>`;
+  <table><tr><th>SA</th><th>Unit Disarankan Hari Ini</th><th>Unit Disarankan Minggu Ini</th><th>Unit Disarankan Bulan Ini</th><th>Deal</th><th>Tidak Deal</th></tr>`;
   Object.entries(d.perSA).forEach(([sa,v])=>{
     html += `<tr><td>${escapeHtml(sa)}</td><td>${v.hari}</td><td>${v.minggu}</td><td>${v.bulan}</td><td>${v.deal}</td><td>${v.tidakDeal}</td></tr>`;
   });
