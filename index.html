@@ -376,13 +376,18 @@ function buildBerandaLeaderboard(rows, field){
   });
   return Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([name,count])=>({name,count}));
 }
+// Setiap tahap di bawah "Unit Disarankan" HARUS dihitung dari populasi "disarankan" itu
+// sendiri (bukan dari `rows` mentah), supaya funnel selalu turun/sama - kalau tidak, data
+// lama yang Status_FollowUp-nya sudah terisi tapi Perlu_FollowUp-nya kosong (mis. dari
+// sebelum field itu ada) bisa bikin "Sudah Follow Up" lebih besar dari "Unit Disarankan".
 function buildBerandaFunnel(rows){
+  const disarankan = rows.filter(r=>r.Perlu_FollowUp==='Ya');
   return [
     { key:'dikerjakan', label:'Unit Dikerjakan', count: rows.length },
-    { key:'disarankan', label:'Unit Disarankan', count: rows.filter(r=>r.Perlu_FollowUp==='Ya').length },
-    { key:'sudahFollowUp', label:'Sudah Follow Up', count: rows.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum').length },
-    { key:'dealBelumDatang', label:'Deal - Belum Datang', count: rows.filter(r=>r.Status_FollowUp==='Deal - Belum Datang').length },
-    { key:'dealSudahDatang', label:'Deal - Sudah Datang', count: rows.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang').length }
+    { key:'disarankan', label:'Unit Disarankan', count: disarankan.length },
+    { key:'sudahFollowUp', label:'Sudah Follow Up', count: disarankan.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum').length },
+    { key:'dealBelumDatang', label:'Deal - Belum Datang', count: disarankan.filter(r=>r.Status_FollowUp==='Deal - Belum Datang').length },
+    { key:'dealSudahDatang', label:'Deal - Sudah Datang', count: disarankan.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang').length }
   ];
 }
 // Total nilai rupiah (jasa + part) dari kumpulan ID_Kunjungan tertentu - dipakai baik untuk
@@ -542,13 +547,14 @@ function setBerandaFilter(key){
 }
 function showBerandaDrilldown(key, label){
   const filtered = berandaFilterRows(berandaState.rows, berandaState.filter);
+  const disarankan = filtered.filter(r=>r.Perlu_FollowUp==='Ya');
   let rows;
   if(key === 'dikerjakan') rows = filtered;
-  else if(key === 'disarankan') rows = filtered.filter(r=>r.Perlu_FollowUp==='Ya');
-  else if(key === 'sudahFollowUp') rows = filtered.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum');
-  else if(key === 'dealBelumDatang') rows = filtered.filter(r=>r.Status_FollowUp==='Deal - Belum Datang');
-  else if(key === 'dealSudahDatang') rows = filtered.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang');
-  else if(key === 'opportunity') rows = filtered.filter(r=>r.Perlu_FollowUp==='Ya' && r.Status_FollowUp!=='Deal - Sudah Datang');
+  else if(key === 'disarankan') rows = disarankan;
+  else if(key === 'sudahFollowUp') rows = disarankan.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum');
+  else if(key === 'dealBelumDatang') rows = disarankan.filter(r=>r.Status_FollowUp==='Deal - Belum Datang');
+  else if(key === 'dealSudahDatang') rows = disarankan.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang');
+  else if(key === 'opportunity') rows = disarankan.filter(r=>r.Status_FollowUp!=='Deal - Sudah Datang');
   else rows = [];
   renderBerandaDrilldownTable(rows, label);
 }
