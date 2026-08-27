@@ -47,7 +47,7 @@
 const SPREADSHEET_ID = '1_JYeu0uYI1CxLA2Y5EMFDFNFaCZnhibG_--o-YGRRqA'; // ID Google Sheet (database)
 const DRIVE_FOLDER_ID = '1A6VLdeox-bhZGS-u9XsyfOnOfTF41viz'; // Folder khusus foto komponen
 const PDF_TEMPLATE_ID = '1-NkoCuTPNBP0iYoJBXoLW2BCAcNvK9LEg61PJ_ZqYx0'; // Template dokumen report Foreman->SA
-const CODE_VERSION = 'v42-disarankan-from-real-items'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
+const CODE_VERSION = 'v43-nodeal-lostwon-opportunity'; // Ganti tiap perubahan, dipakai action=version untuk cek deployment
 
 // Header wajib per sheet - dipakai untuk memvalidasi/memulihkan row 1 setiap sheet diakses,
 // supaya baris data tidak pernah tersalah-baca sebagai header (lihat ensureHeader()).
@@ -853,22 +853,46 @@ function computeDashboard() {
   // ASLI, bukan field Perlu_FollowUp - ternyata field itu tidak bisa diandalkan (banyak
   // kunjungan lama dengan Status_FollowUp sudah Deal/Tidak Deal, jelas-jelas punya baris
   // Jasa/Part, tapi Perlu_FollowUp-nya kosong, kemungkinan tidak pernah ter-set ulang saat
-  // Foreman finalize). Baca ID_Kunjungan dari kedua sheet item SEKALI di sini (bukan per
-  // baris Kunjungan) supaya tetap O(1) lookup per kunjungan, konsisten dengan pola
-  // performa dashboard yang sudah ada.
+  // Foreman finalize). Baca kedua sheet item SEKALI di sini - sekalian hitung total nilai
+  // rupiah (jasa + part) per kunjungan untuk agregat Opportunity/Lost/Won di bawah, harga
+  // part pakai Estimasi_Harga (Foreman) fallback Harga_Satuan_Teknisi, sama seperti PDF report.
   const disarankanIds = {};
-  ['Item_Saran', 'Item_Jasa'].forEach(sheetName => {
-    const sh = getSheet(sheetName);
-    const data = sh.getDataRange().getValues();
-    const col = data[0].indexOf('ID_Kunjungan');
-    for (let i = 1; i < data.length; i++) {
-      const kid = data[i][col];
-      if (kid) disarankanIds[kid] = true;
-    }
-  });
+  const revenueByKunjungan = {};
+  const itemSaranSh = getSheet('Item_Saran');
+  const itemSaranData = itemSaranSh.getDataRange().getValues();
+  const itemSaranHeader = itemSaranData[0];
+  const idxSaranKunjungan = itemSaranHeader.indexOf('ID_Kunjungan');
+  const idxSaranQty = itemSaranHeader.indexOf('Qty');
+  const idxSaranEstimasi = itemSaranHeader.indexOf('Estimasi_Harga');
+  const idxSaranHargaTeknisi = itemSaranHeader.indexOf('Harga_Satuan_Teknisi');
+  for (let i = 1; i < itemSaranData.length; i++) {
+    const row = itemSaranData[i];
+    const kid = row[idxSaranKunjungan];
+    if (!kid) continue;
+    disarankanIds[kid] = true;
+    const qty = Number(row[idxSaranQty]) || 1;
+    const harga = Number(row[idxSaranEstimasi]) || Number(row[idxSaranHargaTeknisi]) || 0;
+    revenueByKunjungan[kid] = (revenueByKunjungan[kid] || 0) + harga * qty;
+  }
+  const itemJasaSh = getSheet('Item_Jasa');
+  const itemJasaData = itemJasaSh.getDataRange().getValues();
+  const itemJasaHeader = itemJasaData[0];
+  const idxJasaKunjungan = itemJasaHeader.indexOf('ID_Kunjungan');
+  const idxJasaHarga = itemJasaHeader.indexOf('Harga_Satuan');
+  for (let i = 1; i < itemJasaData.length; i++) {
+    const row = itemJasaData[i];
+    const kid = row[idxJasaKunjungan];
+    if (!kid) continue;
+    disarankanIds[kid] = true;
+    revenueByKunjungan[kid] = (revenueByKunjungan[kid] || 0) + (Number(row[idxJasaHarga]) || 0);
+  }
 
   const bySA = {};
   let totalCustomerHariIni = 0, totalCustomerMingguIni = 0, totalCustomerBulanIni = 0;
+  // "No Deal" (final) dan "Tidak Deal" (label lama, sebelum alur Tidak Deal jadi langsung
+  // final tanpa reschedule) sama-sama berarti customer menolak - disatukan di sini supaya
+  // data lama ikut terhitung juga.
+  let oppUnit = 0, oppRevenue = 0, lostUnit = 0, lostRevenue = 0, wonUnit = 0, wonRevenue = 0;
 
   rows.forEach(r => {
     const tgl = new Date(r.Tanggal_Masuk);
@@ -881,12 +905,19 @@ function computeDashboard() {
     if (tgl >= startOfWeek) { bySA[sa].minggu += adaSaran; bySA[sa].customerMinggu++; totalCustomerMingguIni++; }
     if (tgl >= startOfMonth) { bySA[sa].bulan += adaSaran; bySA[sa].customerBulan++; totalCustomerBulanIni++; }
 
-    // Deal/Tidak Deal hanya masuk hitungan kalau unitnya memang benar-benar ada saran -
-    // supaya konsisten dengan funnel Beranda (Deal cuma bisa terjadi pada unit yang
-    // disarankan terlebih dulu).
+    // Deal/Tidak Deal & Opportunity/Lost/Won hanya masuk hitungan kalau unitnya memang
+    // benar-benar ada saran - supaya konsisten dengan funnel Beranda.
     if (adaSaran) {
-      if (r.Status_FollowUp === 'Deal - Belum Datang' || r.Status_FollowUp === 'Deal - Sudah Datang') bySA[sa].deal++;
-      if (r.Status_FollowUp === 'Tidak Deal') bySA[sa].tidakDeal++;
+      const status = r.Status_FollowUp;
+      const isLost = status === 'No Deal' || status === 'Tidak Deal';
+      const rev = revenueByKunjungan[r.ID_Kunjungan] || 0;
+
+      if (status === 'Deal - Belum Datang' || status === 'Deal - Sudah Datang') bySA[sa].deal++;
+      if (isLost) bySA[sa].tidakDeal++;
+
+      if (status === 'Deal - Sudah Datang') { wonUnit++; wonRevenue += rev; }
+      else if (isLost) { lostUnit++; lostRevenue += rev; }
+      else { oppUnit++; oppRevenue += rev; }
     }
   });
 
@@ -910,6 +941,9 @@ function computeDashboard() {
     totalCustomer: { hariIni: totalCustomerHariIni, mingguIni: totalCustomerMingguIni, bulanIni: totalCustomerBulanIni },
     totalKunjungan: rows.length,
     totalCheckAC: totalCheckAC,
-    totalCheckSpooring: totalCheckSpooring
+    totalCheckSpooring: totalCheckSpooring,
+    opportunity: { unit: oppUnit, revenue: oppRevenue },
+    lostOpportunity: { unit: lostUnit, revenue: lostRevenue },
+    wonOpportunity: { unit: wonUnit, revenue: wonRevenue }
   };
 }
