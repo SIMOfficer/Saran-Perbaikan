@@ -119,6 +119,7 @@
   .badge.sent{background:var(--success-50);color:var(--success-700);}
   .badge.followup{background:var(--gray-100);color:var(--gray-700);}
   .badge.overdue{background:var(--primary-50);color:var(--primary-700);}
+  .badge.refollow{background:#f3e8ff;color:#7c3aed;}
   .item-block{background:var(--surface-card);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:14px;margin-top:10px;position:relative;}
   .items-table td,.items-table th{vertical-align:middle;}
   .items-table td input{margin:0;}
@@ -389,13 +390,16 @@ function buildBerandaLeaderboard(rows, field){
 }
 // Setiap tahap di bawah "Unit Disarankan" HARUS dihitung dari populasi "disarankan" itu
 // sendiri (bukan dari `rows` mentah), supaya funnel selalu turun/sama.
+function berandaIsDeal(status){
+  return status === 'Deal - Belum Datang' || status === 'Deal - Sudah Datang';
+}
 function buildBerandaFunnel(rows, disarankanIds){
   const disarankan = rows.filter(r=>disarankanIds.has(r.ID_Kunjungan));
   return [
     { key:'dikerjakan', label:'Unit Dikerjakan', count: rows.length },
     { key:'disarankan', label:'Unit Disarankan', count: disarankan.length },
     { key:'sudahFollowUp', label:'Sudah Follow Up', count: disarankan.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum').length },
-    { key:'dealBelumDatang', label:'Deal - Belum Datang', count: disarankan.filter(r=>r.Status_FollowUp==='Deal - Belum Datang').length },
+    { key:'deal', label:'Deal', count: disarankan.filter(r=>berandaIsDeal(r.Status_FollowUp)).length },
     { key:'dealSudahDatang', label:'Deal - Sudah Datang', count: disarankan.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang').length }
   ];
 }
@@ -590,7 +594,7 @@ function showBerandaDrilldown(key, label){
   if(key === 'dikerjakan') rows = filtered;
   else if(key === 'disarankan') rows = disarankan;
   else if(key === 'sudahFollowUp') rows = disarankan.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum');
-  else if(key === 'dealBelumDatang') rows = disarankan.filter(r=>r.Status_FollowUp==='Deal - Belum Datang');
+  else if(key === 'deal') rows = disarankan.filter(r=>berandaIsDeal(r.Status_FollowUp));
   else if(key === 'dealSudahDatang') rows = disarankan.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang');
   else if(key === 'opportunity') rows = disarankan.filter(r=>r.Status_FollowUp!=='Deal - Sudah Datang' && !berandaIsLost(r.Status_FollowUp));
   else if(key === 'lostOpportunity') rows = disarankan.filter(r=>berandaIsLost(r.Status_FollowUp));
@@ -1971,15 +1975,19 @@ function toggleFollowUpOutcome(id, selectEl){
   const status = selectEl.value;
   const tidakDealBlock = document.getElementById('tidakDeal-'+id);
   const dealBlock = document.getElementById('dealBlock-'+id);
+  const refollowBlock = document.getElementById('refollowBlock-'+id);
   if(tidakDealBlock) tidakDealBlock.style.display = status === 'Tidak Deal' ? '' : 'none';
   if(dealBlock) dealBlock.style.display = status === 'Deal' ? '' : 'none';
+  if(refollowBlock) refollowBlock.style.display = status === 'Re-Follow Up' ? '' : 'none';
 }
 function pendingFollowUpCardHtml(r, badgeLabel, badgeClass){
+  const prevInfo = r.Alasan_ReFollowUp ? `<p class="note">Hasil follow up sebelumnya: ${escapeHtml(r.Alasan_ReFollowUp)}${r.Catatan_ReFollowUp ? ' - '+escapeHtml(r.Catatan_ReFollowUp) : ''}</p>` : '';
   return `
     <div class="item-block">
       <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
       ${r.No_HP_Customer ? ` (${escapeHtml(r.No_HP_Customer)} - <a href="#" onclick="openFollowUpWA('${r.ID_Kunjungan}'); return false;">Chat WA</a>)` : ''}
       <span class="badge ${badgeClass}">${badgeLabel}</span>
+      ${prevInfo}
       <div style="margin-top:8px;">
         <button type="button" class="secondary" onclick="toggleFollowUpDetail('${r.ID_Kunjungan}', this)">Lihat Saran Perbaikan</button>
         <div id="detail-${r.ID_Kunjungan}" style="display:none;margin-top:8px;"></div>
@@ -1998,6 +2006,7 @@ function pendingFollowUpCardHtml(r, badgeLabel, badgeClass){
             <option value="">-- Pilih --</option>
             <option value="Deal">Deal</option>
             <option value="Tidak Deal">Tidak Deal</option>
+            <option value="Re-Follow Up">Re-Follow Up</option>
           </select>
         </div>
       </div>
@@ -2021,7 +2030,41 @@ function pendingFollowUpCardHtml(r, badgeLabel, badgeClass){
           <div><label>Jam Rencana Datang</label><input type="time" id="fu-jamdatang-${r.ID_Kunjungan}"></div>
         </div>
       </div>
+      <div id="refollowBlock-${r.ID_Kunjungan}" style="display:none;">
+        <div class="row">
+          <div><label>Tanggal Follow Up Ulang</label><input type="date" id="fu-refollow-tgl-${r.ID_Kunjungan}" value="${toDateInputValue(r.Tanggal_FollowUp_Rencana)}"></div>
+          <div><label>Alasan</label>
+            <select id="fu-refollow-alasan-${r.ID_Kunjungan}" onchange="toggleOther(this)">
+              <option value="">-- Pilih --</option>
+              <option value="Belum Sempat Dihubungi">Belum Sempat Dihubungi</option>
+              <option value="Customer Minta Dihubungi Lagi Nanti">Customer Minta Dihubungi Lagi Nanti</option>
+              <option value="Masih Dipertimbangkan">Masih Dipertimbangkan</option>
+              <option value="Others">Others</option>
+            </select>
+            <input id="fu-refollow-alasan-other-${r.ID_Kunjungan}" style="display:none" placeholder="Sebutkan alasan lain">
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1;"><label>Catatan (opsional)</label><input id="fu-refollow-catatan-${r.ID_Kunjungan}" placeholder="Catatan tambahan"></div>
+        </div>
+        <p class="note">Unit akan tetap di antrian Follow Up dengan tanggal baru, ditandai khusus supaya beda dari follow up pertama.</p>
+      </div>
       <button type="button" class="primary" onclick="saveFollowUpOutcome('${r.ID_Kunjungan}')">Simpan Hasil Follow Up</button>
+    </div>`;
+}
+function noDealReopenCardHtml(r){
+  return `
+    <div class="item-block">
+      <b>${escapeHtml(r.No_Polisi)}</b> - ${escapeHtml(r.Nama_Customer)}
+      ${r.No_HP_Customer ? ` (${escapeHtml(r.No_HP_Customer)} - <a href="#" onclick="openFollowUpWA('${r.ID_Kunjungan}'); return false;">Chat WA</a>)` : ''}
+      <span class="badge overdue">No Deal</span>
+      <p class="note">Alasan No Deal sebelumnya: ${escapeHtml(r.Alasan_Tidak_Deal||'-')}</p>
+      <p class="note">Customer ternyata datang lagi untuk memperbaiki saran perbaikan ini? Update datanya di bawah supaya masuk ke Deal.</p>
+      <div class="row" style="margin-top:8px;">
+        <div><label>Tanggal Kedatangan</label><input type="date" id="kd-tgl-${r.ID_Kunjungan}" value="${toDateInputValue(new Date())}"></div>
+        <div><label>Nomor PKB DMS</label><input id="kd-pkb-${r.ID_Kunjungan}" placeholder="Tulis Sesuai Nomor PKB/WO di DMS"></div>
+      </div>
+      <button type="button" class="primary" onclick="saveKedatangan('${r.ID_Kunjungan}')">Update ke Deal</button>
     </div>`;
 }
 function dealBelumDatangCardHtml(r){
@@ -2061,7 +2104,15 @@ async function renderFollowUp(app){
   const noDealList = mine.filter(r=>r.Status_FollowUp==='No Deal' || r.Status_FollowUp==='Tidak Deal');
   const pendingConfirmCount = rows.filter(r=>r.Status==='Report Terkirim' && r.SA===currentSA && r.FollowUp_Dikonfirmasi!=='Ya' && r.Perlu_FollowUp!=='Tidak').length;
 
-  const decorate = (arr, kategori, badgeLabel, badgeClass) => arr.map(r=>({ ...r, _kategori:kategori, _badgeLabel:badgeLabel, _badgeClass:badgeClass }));
+  // Baris "Belum" yang punya Alasan_ReFollowUp berarti sudah pernah di-follow-up dan
+  // dijadwalkan ulang oleh SA (bukan follow up pertama) - ditandai beda supaya kelihatan.
+  const decorate = (arr, kategori, badgeLabel, badgeClass) => arr.map(r=>{
+    const isRefollow = kategori !== 'dealBelumDatang' && kategori !== 'dealMinggu' && kategori !== 'noDeal' && !!r.Alasan_ReFollowUp;
+    return { ...r, _kategori:kategori,
+      _badgeLabel: isRefollow ? badgeLabel+' (Re-Follow Up)' : badgeLabel,
+      _badgeClass: isRefollow ? 'refollow' : badgeClass,
+      _isRefollow: isRefollow };
+  });
   followUpState.rows = [
     ...decorate(todayList, 'hari', 'Hari Ini', 'wait'),
     ...decorate(overdueList, 'overdue', 'Lewat Jatuh Tempo', 'overdue'),
@@ -2115,20 +2166,23 @@ function renderFollowUpTable(){
     },
     { key:'_badgeLabel', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${r._badgeClass}">${escapeHtml(r._badgeLabel)}</span>` },
     { key:'_info', label:'Info', sortable:false, filterable:false, render:followUpInfoText },
-    { key:'aksi', label:'', sortable:false, filterable:false, render:r=> (r._kategori==='dealMinggu' || r._kategori==='noDeal') ? '-' : `<button type="button" class="secondary" onclick="openFollowUpEdit('${r.ID_Kunjungan}')">Update</button>` }
+    { key:'aksi', label:'', sortable:false, filterable:false, render:r=> r._kategori==='dealMinggu' ? '-' : `<button type="button" class="secondary" onclick="openFollowUpEdit('${r.ID_Kunjungan}')">Update</button>` }
   ], 'No_Polisi', 'Tidak ada data follow up.');
 }
 function followUpInfoText(r){
   if(r._kategori==='dealBelumDatang') return 'Rencana datang: ' + (r.Tanggal_Rencana_Datang?toDateInputValue(r.Tanggal_Rencana_Datang):'-') + ' ' + (r.Jam_Rencana_Datang||'');
   if(r._kategori==='dealMinggu') return 'Datang: ' + (r.Tanggal_Kedatangan_Aktual?toDateInputValue(r.Tanggal_Kedatangan_Aktual):'-') + (r.Nomor_PKB?' - PKB '+escapeHtml(r.Nomor_PKB):'');
   if(r._kategori==='noDeal') return r.Alasan_Tidak_Deal ? 'Alasan: '+escapeHtml(r.Alasan_Tidak_Deal) : '-';
+  if(r._isRefollow) return 'Follow up sebelumnya: ' + escapeHtml(r.Alasan_ReFollowUp) + (r.Catatan_ReFollowUp ? ' - '+escapeHtml(r.Catatan_ReFollowUp) : '');
   return 'Rencana FU: ' + (r.Tanggal_FollowUp_Rencana?toDateInputValue(r.Tanggal_FollowUp_Rencana):'-');
 }
 function openFollowUpEdit(id){
   const r = followUpState.rows.find(x=>x.ID_Kunjungan===id);
   const panel = document.getElementById('followUpEditPanel');
   if(!r || !panel) return;
-  const body = r.Status_FollowUp === 'Deal - Belum Datang' ? dealBelumDatangCardHtml(r) : pendingFollowUpCardHtml(r, r._badgeLabel, r._badgeClass);
+  const body = r.Status_FollowUp === 'Deal - Belum Datang' ? dealBelumDatangCardHtml(r)
+    : (r.Status_FollowUp === 'No Deal' || r.Status_FollowUp === 'Tidak Deal') ? noDealReopenCardHtml(r)
+    : pendingFollowUpCardHtml(r, r._badgeLabel, r._badgeClass);
   panel.innerHTML = `<div class="card" style="margin-bottom:22px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <h4 style="margin:0;">Update Follow Up</h4>
@@ -2166,6 +2220,17 @@ async function saveFollowUpOutcome(id){
     fields.Status_FollowUp = 'Deal - Belum Datang';
     fields.Tanggal_Rencana_Datang = tglDatang;
     fields.Jam_Rencana_Datang = document.getElementById('fu-jamdatang-'+id).value || '';
+  } else if(status === 'Re-Follow Up'){
+    const tglBaru = document.getElementById('fu-refollow-tgl-'+id).value;
+    if(!tglBaru){ alert('Tanggal follow up ulang wajib diisi'); return; }
+    const alasan = readDropdownWithOther(document.getElementById('fu-refollow-alasan-'+id));
+    if(!alasan){ alert('Pilih alasan follow up ulang dulu'); return; }
+    // Kembali ke antrian aktif ("Belum") dengan tanggal baru - alasan/catatan disimpan supaya
+    // muncul sebagai "hasil follow up sebelumnya" saat baris ini tampil lagi di antrian.
+    fields.Status_FollowUp = 'Belum';
+    fields.Tanggal_FollowUp_Rencana = tglBaru;
+    fields.Alasan_ReFollowUp = alasan;
+    fields.Catatan_ReFollowUp = document.getElementById('fu-refollow-catatan-'+id).value || '';
   }
   const res = await api('updateRow','POST',{ sheet:'Kunjungan', id, fields });
   if(res.success){ renderFollowUp(document.getElementById('app')); }
