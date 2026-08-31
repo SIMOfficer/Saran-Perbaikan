@@ -254,6 +254,11 @@ const ROLE_LABELS = { teknisi:"Teknisi", foreman:"Foreman", sa:"Service Advisor"
    kartu KPI di sampingnya supaya identitas tidak cuma mengandalkan warna. */
 const CHART_COLOR_FUNNEL = '#dc2626';
 const CHART_COLORS_OPPORTUNITY = ['#2563eb', '#ea580c', '#16a34a'];
+// Kategori tetap per SA (dicek lolos validator buta warna dataviz untuk 4 warna
+// pertama yang benar-benar dipakai saat ini) - kalau SA lebih dari 6, sisanya
+// dilebur jadi abu-abu daripada bikin hue baru yang tidak lolos cek.
+const CHART_COLORS_SA = ['#2563eb', '#ea580c', '#7c3aed', '#0891b2', '#e11d48', '#65a30d'];
+function chartColorForSaIndex(i){ return CHART_COLORS_SA[i] || '#6b7280'; }
 const CHART_INSTANCES = {};
 function renderBarChart(canvasId, labels, data, colors){
   const canvas = document.getElementById(canvasId);
@@ -269,6 +274,46 @@ function renderBarChart(canvasId, labels, data, colors){
       scales: {
         y: { beginAtZero:true, ticks:{ precision:0 }, grid:{ color:'var(--gray-100)' } },
         x: { grid:{ display:false }, ticks:{ font:{ size:11 } } }
+      }
+    }
+  });
+}
+// Funnel per SA - horizontal stacked bar (1 baris per tahap funnel, dipecah warna per SA)
+// supaya total tahap ATAU kontribusi SA tertentu di tahap itu sama-sama kelihatan dalam
+// satu chart, alih-alih bentuk trapesium meruncing (Chart.js tidak punya tipe funnel asli).
+// stageKeys/stageLabels harus urutan sama dengan buildBerandaFunnel(); saSeries = daftar
+// {name, data:[count per tahap, urutan sama]}. Klik 1 segmen -> onCellClick(saName, stageKey).
+function renderStackedFunnelChart(canvasId, stageKeys, stageLabels, saSeries, onCellClick){
+  const canvas = document.getElementById(canvasId);
+  if(!canvas || typeof Chart === 'undefined') return;
+  if(CHART_INSTANCES[canvasId]) CHART_INSTANCES[canvasId].destroy();
+  const datasets = saSeries.map((s,i)=>({
+    label: s.name,
+    data: s.data,
+    backgroundColor: chartColorForSaIndex(i),
+    borderRadius: 3,
+    maxBarThickness: 26
+  }));
+  CHART_INSTANCES[canvasId] = new Chart(canvas, {
+    type: 'bar',
+    data: { labels: stageLabels, datasets },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (evt, elements) => {
+        if(!elements.length) return;
+        const el = elements[0];
+        onCellClick(saSeries[el.datasetIndex].name, stageKeys[el.index]);
+      },
+      onHover: (evt, elements) => { evt.native.target.style.cursor = elements.length ? 'pointer' : 'default'; },
+      plugins: {
+        legend: { position:'bottom', labels:{ boxWidth:12, font:{ size:11 } } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.formattedValue} unit` } }
+      },
+      scales: {
+        x: { stacked:true, beginAtZero:true, ticks:{ precision:0 }, grid:{ color:'var(--gray-100)' } },
+        y: { stacked:true, grid:{ display:false }, ticks:{ font:{ size:11 } } }
       }
     }
   });
@@ -2578,7 +2623,8 @@ function renderKabengkelContent(app){
             <div class="lbl">${f.label}</div>
           </div>`).join('')}
       </div>
-      <div class="chart-wrap"><canvas id="kabFunnelChart"></canvas></div>
+      <p class="note" style="margin-top:14px;">Total tiap tahap = panjang bar (lihat juga angka di kartu di atas); warna = kontribusi tiap SA. Klik salah satu segmen untuk lihat detail unitnya.</p>
+      <div class="chart-wrap" style="height:280px;"><canvas id="kabFunnelChart"></canvas></div>
       <h4 style="margin-top:18px;">Breakdown per SA</h4>
       <div id="kabFunnelPerSA">${kabFunnelTableHtml(funnelPerSA)}</div>
     </div>
@@ -2635,7 +2681,12 @@ function renderKabengkelContent(app){
     <div id="kabDrilldown"></div>
   `;
   renderDashboardTable(filtered);
-  renderBarChart('kabFunnelChart', funnel.map(f=>f.label), funnel.map(f=>f.count), CHART_COLOR_FUNNEL);
+  renderStackedFunnelChart('kabFunnelChart', funnel.map(f=>f.key), funnel.map(f=>f.label),
+    funnelPerSA.map(row=>({ name: row.sa, data: row.funnel.map(f=>f.count) })),
+    (saName, stageKey) => {
+      const stage = funnel.find(f=>f.key===stageKey);
+      showKabDrilldownSA(saName, stageKey, (stage?stage.label:stageKey) + ' - ' + saName);
+    });
   renderBarChart('kabOppChart', ['Opportunity','Lost Opportunity','Won Opportunity'],
     [opportunity.unit, lostOpportunity.unit, wonOpportunity.unit], CHART_COLORS_OPPORTUNITY);
   bindKabBreakdownClicks('kabFunnelPerSA', ds => showKabDrilldownSA(ds.sa, ds.stage, ds.label));
