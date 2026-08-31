@@ -554,6 +554,64 @@ function berandaRevenueForIds(ids, itemsJasa, itemsSaran){
 function berandaIsLost(status){
   return status === 'No Deal' || status === 'Tidak Deal';
 }
+// Top 5 Part/Jasa - Opsi A (disepakati dengan user): kelompokkan berdasarkan teks
+// apa adanya (huruf kecil + spasi dirapikan), BUKAN kata kunci kategori manual.
+// Nama_Komponen/Nama_Jasa itu free text dari Teknisi, jadi ini sengaja belum
+// menyatukan variasi penulisan yang beda jauh (mis. "Kampas Rem Depan" vs "Rem depan") -
+// evaluasi hasilnya dulu di data riil sebelum mempertimbangkan pengelompokan lebih pintar.
+function normalizeItemName(s){
+  return (s||'').toLowerCase().trim().replace(/\s+/g,' ');
+}
+function topSuggestedItems(items, nameKey, idsAllowed, n){
+  const groups = new Map();
+  items.forEach(it=>{
+    const raw = (it[nameKey]||'').trim();
+    if(!raw || !idsAllowed.has(it.ID_Kunjungan)) return;
+    const norm = normalizeItemName(raw);
+    if(!groups.has(norm)) groups.set(norm, { label: raw, units: new Set(), qty: 0 });
+    const g = groups.get(norm);
+    g.units.add(it.ID_Kunjungan);
+    g.qty += Number(it.Qty) || 1;
+  });
+  return [...groups.values()]
+    .map(g => ({ label: g.label, unitCount: g.units.size, qty: g.qty, ids: g.units }))
+    .sort((a,b) => b.unitCount - a.unitCount)
+    .slice(0, n);
+}
+const TOP_ITEM_CAT_LABELS = {
+  topPart: 'Part Paling Disarankan', topJasa: 'Jasa Paling Disarankan',
+  topPartLost: 'Part Paling Banyak Lost', topPartWon: 'Part Paling Banyak Won'
+};
+function buildTopItems(filteredRows, itemsJasa, itemsSaran){
+  const allIds = new Set(filteredRows.map(r=>r.ID_Kunjungan));
+  const lostIds = new Set(filteredRows.filter(r=>berandaIsLost(r.Status_FollowUp)).map(r=>r.ID_Kunjungan));
+  const wonIds = new Set(filteredRows.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang').map(r=>r.ID_Kunjungan));
+  return {
+    topPart: topSuggestedItems(itemsSaran, 'Nama_Komponen', allIds, 5),
+    topJasa: topSuggestedItems(itemsJasa, 'Nama_Jasa', allIds, 5),
+    topPartLost: topSuggestedItems(itemsSaran, 'Nama_Komponen', lostIds, 5),
+    topPartWon: topSuggestedItems(itemsSaran, 'Nama_Komponen', wonIds, 5)
+  };
+}
+function topItemsHtml(title, list, cat){
+  const rowsHtml = list.length ? list.map((item,i)=>`
+    <div class="top-item-row" data-cat="${cat}" data-idx="${i}" style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-default);cursor:pointer;">
+      <span>${i+1}. ${escapeHtml(item.label)}</span>
+      <b>${item.unitCount} unit</b>
+    </div>`).join('') : '<p class="note">Tidak ada data.</p>';
+  return `<div><h4 style="margin:0 0 8px;">${escapeHtml(title)}</h4>${rowsHtml}</div>`;
+}
+function bindTopItemClicks(panelId, stateObj){
+  [...document.querySelectorAll('.top-item-row')].forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const item = stateObj.topItems && stateObj.topItems[el.dataset.cat] && stateObj.topItems[el.dataset.cat][Number(el.dataset.idx)];
+      if(!item) return;
+      const filtered = berandaFilterRows(stateObj.rows, stateObj.filter);
+      const rows = filtered.filter(r=>item.ids.has(r.ID_Kunjungan));
+      renderDrilldownTable(panelId, rows, `${item.label} - ${TOP_ITEM_CAT_LABELS[el.dataset.cat]||el.dataset.cat}`);
+    });
+  });
+}
 function buildBerandaOpportunity(rows, itemsJasa, itemsSaran, disarankanIds){
   const pending = rows.filter(r=>disarankanIds.has(r.ID_Kunjungan) && r.Status_FollowUp!=='Deal - Sudah Datang' && !berandaIsLost(r.Status_FollowUp));
   const ids = pending.map(r=>r.ID_Kunjungan);
@@ -623,6 +681,7 @@ function renderBerandaContent(app){
   const penambahanTeknisi = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Teknisi', disarankanIds);
   const penambahanForeman = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Nama_Foreman', disarankanIds);
   const penambahanSA = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'SA', disarankanIds);
+  berandaState.topItems = buildTopItems(filtered, berandaState.itemsJasa, berandaState.itemsSaran);
   const filterBtn = (key,label) => `<button type="button" class="secondary" onclick="setBerandaFilter('${key}')" style="${berandaState.filter===key?'background:var(--primary-50);color:var(--primary-700);font-weight:600;':''}">${label}</button>`;
 
   app.innerHTML = `
@@ -682,6 +741,19 @@ function renderBerandaContent(app){
     </div>
 
     <div class="card" style="margin-top:16px;">
+      <h3>Top 5 Saran Perbaikan</h3>
+      <p class="note">Dikelompokkan dari teks nama part/jasa apa adanya (huruf kecil &amp; spasi dirapikan) - variasi penulisan yang beda jauh masih dihitung terpisah. Klik salah satu untuk lihat unitnya.</p>
+      <div class="row">
+        ${topItemsHtml('Part Paling Disarankan', berandaState.topItems.topPart, 'topPart')}
+        ${topItemsHtml('Jasa Paling Disarankan', berandaState.topItems.topJasa, 'topJasa')}
+      </div>
+      <div class="row" style="margin-top:14px;">
+        ${topItemsHtml('Part Paling Banyak Lost', berandaState.topItems.topPartLost, 'topPartLost')}
+        ${topItemsHtml('Part Paling Banyak Won', berandaState.topItems.topPartWon, 'topPartWon')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
       <h3>Penambahan Unit &amp; Revenue Saran Perbaikan</h3>
       <p class="note">Unit yang sudah berhasil di-deal &amp; didatangkan kembali oleh SA, dipecah berdasarkan Mekanik/Foreman/SA yang menangani. Klik nama untuk lihat unitnya.</p>
       <div class="row">
@@ -719,6 +791,7 @@ function renderBerandaContent(app){
       else showBerandaDrilldownByPerson(el.dataset.name);
     });
   });
+  bindTopItemClicks('berandaDrilldown', berandaState);
   renderBarChart('berandaFunnelChart', funnel.map(f=>f.label), funnel.map(f=>f.count), CHART_COLOR_FUNNEL);
   const oppLabels = ['Opportunity','Lost Opportunity','Won Opportunity'];
   const oppKeys = ['opportunity','lostOpportunity','wonOpportunity'];
@@ -773,6 +846,31 @@ function renderBerandaDrilldownTable(rows, label){
 // Generik - dipakai baik oleh drilldown Beranda (panel #berandaDrilldown) maupun
 // Dashboard Kepala Bengkel (panel #kabDrilldown), supaya definisi kolom tabel detail
 // selalu sama persis di kedua tempat.
+// Sumber itemsJasa/itemsSaran per panel drilldown - keduanya (Beranda & Kepala Bengkel)
+// sudah memuat SELURUH Item_Jasa/Item_Saran di awal, jadi "Lihat Saran" di bawah bisa
+// langsung baca dari sini tanpa API call lagi per klik (lihat showDrilldownItemDetail).
+function drilldownItemSource(panelId){
+  return panelId === 'kabDrilldown' ? kabState : berandaState;
+}
+// Sebelum ini, untuk lihat saran perbaikan/jasa dari 1 unit yang muncul di drilldown
+// Beranda/Kepala Bengkel, user harus catat No. Polisi-nya, pindah ke menu SA, cari lagi
+// di situ baru buka reportnya - berulang-ulang kalau mau cek banyak unit. Tombol ini
+// menampilkan isi saran (jasa & part) langsung di tempat, mengikuti data yang sudah ada.
+function showDrilldownItemDetail(panelId, id, noPolisi){
+  const source = drilldownItemSource(panelId);
+  const box = document.getElementById(panelId + 'ItemDetail');
+  if(!box) return;
+  const itemsJasa = (source.itemsJasa||[]).filter(j=>j.ID_Kunjungan===id);
+  const itemsSaran = (source.itemsSaran||[]).filter(it=>it.ID_Kunjungan===id);
+  box.innerHTML = `<div class="item-block">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <b>Saran Perbaikan - ${escapeHtml(noPolisi)}</b>
+      <button type="button" class="secondary" onclick="document.getElementById('${panelId}ItemDetail').innerHTML=''">Tutup</button>
+    </div>
+    ${followUpDetailTableHtml(itemsJasa, itemsSaran)}
+  </div>`;
+  box.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
 function renderDrilldownTable(panelId, rows, label){
   const panel = document.getElementById(panelId);
   if(!panel) return;
@@ -783,6 +881,7 @@ function renderDrilldownTable(panelId, rows, label){
       <button type="button" class="secondary" onclick="document.getElementById('${panelId}').innerHTML=''">Tutup</button>
     </div>
     <div id="${tableId}"></div>
+    <div id="${panelId}ItemDetail" style="margin-top:10px;"></div>
   </div>`;
   dtInit(tableId, rows, [
     { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
@@ -792,7 +891,9 @@ function renderDrilldownTable(panelId, rows, label){
     { key:'Nama_Foreman', label:'Foreman', filterable:true, filterType:'select' },
     { key:'SA', label:'SA', filterable:true, filterType:'select' },
     { key:'Status', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span>` },
-    { key:'Status_FollowUp', label:'Status Follow Up', filterable:true, filterType:'select' }
+    { key:'Status_FollowUp', label:'Status Follow Up', filterable:true, filterType:'select' },
+    { key:'aksi', label:'', sortable:false, filterable:false, render:r=>
+      `<button type="button" class="secondary" onclick="showDrilldownItemDetail('${panelId}','${r.ID_Kunjungan}','${escapeHtml(r.No_Polisi)}')">Lihat Saran</button>` }
   ], 'Tanggal_Masuk', 'Tidak ada data.');
   panel.scrollIntoView({behavior:'smooth', block:'start'});
 }
@@ -858,6 +959,16 @@ function dtFilter(containerId, key, value){
   st.filters[key] = value;
   dtRender(containerId);
 }
+function dtComputeFiltered(st){
+  let filtered = st.rows.filter(r => st.columns.every(col => {
+    if(!col.filterable) return true;
+    const fval = st.filters[col.key];
+    if(!fval) return true;
+    const rval = String(col.filterValue ? col.filterValue(r) : (r[col.key]||''));
+    return col.filterType === 'select' ? rval === fval : rval.toLowerCase().includes(fval.toLowerCase());
+  }));
+  return sortRows(filtered, st.sortKey, st.sortDir);
+}
 function dtRender(containerId){
   const st = DT_REGISTRY[containerId];
   const container = document.getElementById(containerId);
@@ -866,14 +977,7 @@ function dtRender(containerId){
   const prevFocusedId = (prevFocused && prevFocused.id && prevFocused.id.indexOf(containerId+'-f-')===0) ? prevFocused.id : null;
   const prevCaret = (prevFocusedId && typeof prevFocused.selectionStart === 'number') ? prevFocused.selectionStart : null;
 
-  let filtered = st.rows.filter(r => st.columns.every(col => {
-    if(!col.filterable) return true;
-    const fval = st.filters[col.key];
-    if(!fval) return true;
-    const rval = String(col.filterValue ? col.filterValue(r) : (r[col.key]||''));
-    return col.filterType === 'select' ? rval === fval : rval.toLowerCase().includes(fval.toLowerCase());
-  }));
-  filtered = sortRows(filtered, st.sortKey, st.sortDir);
+  const filtered = dtComputeFiltered(st);
   const arrow = key => st.sortKey===key ? (st.sortDir==='asc' ? ' ▲' : ' ▼') : '';
 
   const headCells = st.columns.map(col => col.sortable===false
@@ -899,12 +1003,81 @@ function dtRender(containerId){
       <tbody>${bodyHtml}</tbody>
     </table>
     </div>
-    <p class="note">${filtered.length} dari ${st.rows.length} data.</p>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <p class="note" style="margin:0;">${filtered.length} dari ${st.rows.length} data.</p>
+      <button type="button" class="secondary" style="margin:0;" onclick="dtToggleExportPanel('${containerId}')">Export ke Excel</button>
+    </div>
+    <div id="${containerId}-export" style="display:none;margin-top:8px;"></div>
   `;
   if(prevFocusedId){
     const el = document.getElementById(prevFocusedId);
     if(el){ el.focus(); if(prevCaret!==null && el.setSelectionRange) el.setSelectionRange(prevCaret, prevCaret); }
   }
+}
+// Export CSV generik untuk SEMUA tabel dtInit di seluruh aplikasi (Riwayat, Laporan,
+// Follow Up, Dashboard, drilldown, dll) - tidak perlu ubah tiap pemanggil dtInit satu-satu.
+// Kolom tanpa label (mis. kolom tombol Aksi) otomatis tidak ditawarkan untuk di-export.
+// Nilai per kolom: pakai col.exportValue kalau ada, kalau tidak coba r[col.key] mentah,
+// kalau kosong/undefined baru fallback ke teks polos dari col.render (supaya kolom yang
+// nilainya hasil turunan style badge dsb tetap ke-export sebagai teks biasa).
+function dtExportValue(col, r){
+  if(col.exportValue) return col.exportValue(r);
+  // render() sudah mendefinisikan bagaimana nilai kolom itu seharusnya dibaca (mis. format
+  // tanggal, badge status) - dipakai duluan dan di-strip ke teks polos, BUKAN raw r[col.key],
+  // supaya kolom seperti Tanggal ke-export dalam bentuk yang sama seperti yang tampil di layar
+  // (bukan ISO timestamp mentah).
+  if(col.render){
+    const div = document.createElement('div');
+    div.innerHTML = col.render(r);
+    return (div.textContent || '').replace(/\s+/g,' ').trim();
+  }
+  const raw = r[col.key];
+  return raw==null ? '' : raw;
+}
+function dtToggleExportPanel(containerId){
+  const panel = document.getElementById(containerId+'-export');
+  const st = DT_REGISTRY[containerId];
+  if(!panel || !st) return;
+  if(panel.style.display === 'none'){
+    const cols = st.columns.filter(c=>c.label);
+    panel.innerHTML = `<div class="item-block">
+      <b>Pilih kolom yang mau di-export:</b>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin:10px 0;">
+        ${cols.map((c,i)=>`<label style="display:flex;align-items:center;gap:5px;font-weight:400;margin:0;">
+          <input type="checkbox" id="${containerId}-exp-${i}" checked style="width:auto;">${escapeHtml(c.label)}</label>`).join('')}
+      </div>
+      <p class="note">Yang di-export mengikuti data yang sedang tampil di tabel ini (filter &amp; urutan aktif).</p>
+      <button type="button" class="primary" onclick="dtDownloadCsv('${containerId}')">Download CSV</button>
+    </div>`;
+    panel.style.display = '';
+  } else {
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+  }
+}
+function dtDownloadCsv(containerId){
+  const st = DT_REGISTRY[containerId];
+  if(!st) return;
+  const cols = st.columns.filter(c=>c.label);
+  const selected = cols.filter((c,i)=>document.getElementById(`${containerId}-exp-${i}`).checked);
+  if(!selected.length){ alert('Pilih minimal 1 kolom.'); return; }
+  const csvEscape = v => {
+    const s = String(v==null ? '' : v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  };
+  const filtered = dtComputeFiltered(st);
+  const lines = [selected.map(c=>csvEscape(c.label)).join(',')]
+    .concat(filtered.map(r => selected.map(c=>csvEscape(dtExportValue(c,r))).join(',')));
+  // BOM (﻿) supaya Excel langsung baca UTF-8 dengan benar (huruf/simbol Rupiah dsb).
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `DA-SAR-${containerId}-${toDateInputValue(new Date())}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 /* ---------- TEKNISI: input saran ---------- */
@@ -2656,6 +2829,7 @@ function renderKabengkelContent(app){
   const opportunityPerSA = kabOpportunityPerSA(filtered, kabState.itemsJasa, kabState.itemsSaran, disarankanIds);
   const fuTotal = computeFollowUpBuckets(kabState.rows, null);
   const fuPerSA = kabFollowUpPerSA(kabState.rows);
+  kabState.topItems = buildTopItems(filtered, kabState.itemsJasa, kabState.itemsSaran);
   const filterBtn = (key,label) => `<button type="button" class="secondary" onclick="setKabFilter('${key}')" style="${kabState.filter===key?'background:var(--primary-50);color:var(--primary-700);font-weight:600;':''}">${label}</button>`;
 
   app.innerHTML = `
@@ -2720,6 +2894,19 @@ function renderKabengkelContent(app){
     </div>
 
     <div class="card" style="margin-top:16px;">
+      <h3>Top 5 Saran Perbaikan</h3>
+      <p class="note">Dikelompokkan dari teks nama part/jasa apa adanya (huruf kecil &amp; spasi dirapikan) - variasi penulisan yang beda jauh masih dihitung terpisah. Klik salah satu untuk lihat unitnya.</p>
+      <div class="row">
+        ${topItemsHtml('Part Paling Disarankan', kabState.topItems.topPart, 'topPart')}
+        ${topItemsHtml('Jasa Paling Disarankan', kabState.topItems.topJasa, 'topJasa')}
+      </div>
+      <div class="row" style="margin-top:14px;">
+        ${topItemsHtml('Part Paling Banyak Lost', kabState.topItems.topPartLost, 'topPartLost')}
+        ${topItemsHtml('Part Paling Banyak Won', kabState.topItems.topPartWon, 'topPartWon')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
       <h3>Rekap Dashboard Follow Up SA</h3>
       <p class="note">Snapshot antrian Follow Up seluruh SA saat ini (tidak mengikuti filter periode di atas) - persis seperti yang dilihat masing-masing SA di menu Follow Up mereka.</p>
       <div class="kpi">
@@ -2764,6 +2951,7 @@ function renderKabengkelContent(app){
   bindKabBreakdownClicks('kabFunnelPerSA', ds => showKabDrilldownSA(ds.sa, ds.stage, ds.label));
   bindKabBreakdownClicks('kabOppPerSA', ds => showKabDrilldownSA(ds.sa, ds.stage, ds.label));
   bindKabBreakdownClicks('kabFuPerSA', ds => showKabFollowUpDrilldown(ds.sa, ds.fukey, ds.label));
+  bindTopItemClicks('kabDrilldown', kabState);
 }
 function renderDashboardTable(filtered){
   if(!document.getElementById('dashboardTable')) return;
