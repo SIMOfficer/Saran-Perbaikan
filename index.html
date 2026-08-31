@@ -142,6 +142,12 @@
   .kpi .box.success .num{color:var(--success-600);}
   .kpi .box.info .num{color:var(--info-600);}
   .kpi .box .lbl{font-size:12px;color:var(--text-muted);}
+  .chart-wrap{position:relative;height:240px;margin-top:14px;}
+  .breakdown-table{overflow-x:auto;}
+  .breakdown-table table{font-size:12.5px;}
+  .breakdown-table td.clickable,.breakdown-table th.clickable{cursor:default;}
+  .breakdown-table td.clickable{cursor:pointer;transition:background .15s;}
+  .breakdown-table td.clickable:hover{background:var(--gray-100);}
   .note{font-size:12px;color:var(--text-muted);margin-top:6px;}
   .split-panel{display:flex;background:var(--surface-card);border-radius:var(--radius-xl);box-shadow:var(--ring-card),var(--shadow-sm);overflow:hidden;min-height:65vh;}
   .split-queue{width:300px;flex-shrink:0;border-right:1px solid var(--border-default);overflow-y:auto;padding:12px;}
@@ -198,6 +204,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
 /* ============================================================
    GANTI dengan URL Web App hasil deploy Google Apps Script:
@@ -238,6 +245,34 @@ const VIEW_TITLES = {
   beranda:"Beranda"
 };
 const ROLE_LABELS = { teknisi:"Teknisi", foreman:"Foreman", sa:"Service Advisor", kabengkel:"Kepala Bengkel", freecheck:"Teknisi AC/Spooring" };
+
+/* ---------- Chart helper (dipakai Beranda & Dashboard Kepala Bengkel) ----------
+   Funnel = 1 hue (satu metrik "jumlah unit" di berbagai tahap, bukan beberapa
+   kategori berbeda) supaya tidak salah baca sebagai perbandingan antar kategori.
+   Opportunity/Lost/Won = 3 warna status tetap (biru=menunggu, oranye=hilang,
+   hijau=berhasil) - dicek lolos CVD-safe check, dan tetap ada angka langsung di
+   kartu KPI di sampingnya supaya identitas tidak cuma mengandalkan warna. */
+const CHART_COLOR_FUNNEL = '#dc2626';
+const CHART_COLORS_OPPORTUNITY = ['#2563eb', '#ea580c', '#16a34a'];
+const CHART_INSTANCES = {};
+function renderBarChart(canvasId, labels, data, colors){
+  const canvas = document.getElementById(canvasId);
+  if(!canvas || typeof Chart === 'undefined') return;
+  if(CHART_INSTANCES[canvasId]) CHART_INSTANCES[canvasId].destroy();
+  CHART_INSTANCES[canvasId] = new Chart(canvas, {
+    type: 'bar',
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderRadius: 4, maxBarThickness: 64 }] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display:false }, tooltip: { callbacks: { label: c => ' ' + c.formattedValue + ' unit' } } },
+      scales: {
+        y: { beginAtZero:true, ticks:{ precision:0 }, grid:{ color:'var(--gray-100)' } },
+        x: { grid:{ display:false }, ticks:{ font:{ size:11 } } }
+      }
+    }
+  });
+}
 
 document.getElementById('roleSwitch').addEventListener('change', e=>{
   currentRole = e.target.value;
@@ -370,6 +405,14 @@ function berandaDisarankanIds(itemsJasa, itemsSaran){
   itemsJasa.forEach(j=>{ if(j.ID_Kunjungan) ids.add(j.ID_Kunjungan); });
   itemsSaran.forEach(it=>{ if(it.ID_Kunjungan) ids.add(it.ID_Kunjungan); });
   return ids;
+}
+// Daftar nama SA yang pernah tercatat di data (dipakai untuk breakdown per SA di
+// Dashboard Kepala Bengkel) - diambil dari SELURUH rows (bukan yang sudah difilter
+// periode) supaya daftar SA tidak berubah-ubah/hilang saat ganti filter Hari/Minggu/Bulan.
+function berandaSaUniverse(rows){
+  const set = new Set();
+  rows.forEach(r=> set.add(r.SA || '(Tanpa SA)'));
+  return [...set].sort();
 }
 function berandaFilterRows(rows, filterKey){
   if(filterKey === 'overall') return rows;
@@ -518,6 +561,7 @@ function renderBerandaContent(app){
             <div class="lbl">${f.label}</div>
           </div>`).join('')}
       </div>
+      <div class="chart-wrap"><canvas id="berandaFunnelChart"></canvas></div>
     </div>
 
     <div class="card" style="margin-top:16px;">
@@ -540,6 +584,7 @@ function renderBerandaContent(app){
           <div class="note" style="margin-top:6px;">${formatRupiah(wonOpportunity.revenue)}</div>
         </div>
       </div>
+      <div class="chart-wrap"><canvas id="berandaOppChart"></canvas></div>
     </div>
 
     <div class="card" style="margin-top:16px;">
@@ -580,6 +625,9 @@ function renderBerandaContent(app){
       else showBerandaDrilldownByPerson(el.dataset.name);
     });
   });
+  renderBarChart('berandaFunnelChart', funnel.map(f=>f.label), funnel.map(f=>f.count), CHART_COLOR_FUNNEL);
+  renderBarChart('berandaOppChart', ['Opportunity','Lost Opportunity','Won Opportunity'],
+    [opportunity.unit, lostOpportunity.unit, wonOpportunity.unit], CHART_COLORS_OPPORTUNITY);
 }
 function setBerandaFilter(key){
   berandaState.filter = key;
@@ -587,19 +635,24 @@ function setBerandaFilter(key){
   if(panel) panel.innerHTML = '';
   renderBerandaContent(document.getElementById('app'));
 }
+// Dipetakan sekali di sini supaya Beranda dan breakdown Dashboard Kepala Bengkel
+// (agregat maupun per SA) selalu memfilter baris funnel/opportunity dengan definisi
+// yang sama persis - lihat showBerandaDrilldown, showKabDrilldown, showKabDrilldownSA.
+function berandaRowsForStage(filtered, disarankanIds, key){
+  const disarankan = filtered.filter(r=>disarankanIds.has(r.ID_Kunjungan));
+  if(key === 'dikerjakan') return filtered;
+  if(key === 'disarankan') return disarankan;
+  if(key === 'sudahFollowUp') return disarankan.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum');
+  if(key === 'deal') return disarankan.filter(r=>berandaIsDeal(r.Status_FollowUp));
+  if(key === 'dealSudahDatang') return disarankan.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang');
+  if(key === 'opportunity') return disarankan.filter(r=>r.Status_FollowUp!=='Deal - Sudah Datang' && !berandaIsLost(r.Status_FollowUp));
+  if(key === 'lostOpportunity') return disarankan.filter(r=>berandaIsLost(r.Status_FollowUp));
+  if(key === 'wonOpportunity') return disarankan.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang');
+  return [];
+}
 function showBerandaDrilldown(key, label){
   const filtered = berandaFilterRows(berandaState.rows, berandaState.filter);
-  const disarankan = filtered.filter(r=>berandaState.disarankanIds.has(r.ID_Kunjungan));
-  let rows;
-  if(key === 'dikerjakan') rows = filtered;
-  else if(key === 'disarankan') rows = disarankan;
-  else if(key === 'sudahFollowUp') rows = disarankan.filter(r=>r.Status_FollowUp && r.Status_FollowUp!=='Belum');
-  else if(key === 'deal') rows = disarankan.filter(r=>berandaIsDeal(r.Status_FollowUp));
-  else if(key === 'dealSudahDatang') rows = disarankan.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang');
-  else if(key === 'opportunity') rows = disarankan.filter(r=>r.Status_FollowUp!=='Deal - Sudah Datang' && !berandaIsLost(r.Status_FollowUp));
-  else if(key === 'lostOpportunity') rows = disarankan.filter(r=>berandaIsLost(r.Status_FollowUp));
-  else if(key === 'wonOpportunity') rows = disarankan.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang');
-  else rows = [];
+  const rows = berandaRowsForStage(filtered, berandaState.disarankanIds, key);
   renderBerandaDrilldownTable(rows, label);
 }
 function showBerandaDrilldownByPerson(name){
@@ -614,16 +667,23 @@ function showBerandaPenambahanDrilldown(name){
   renderBerandaDrilldownTable(rows, 'Penambahan - ' + name);
 }
 function renderBerandaDrilldownTable(rows, label){
-  const panel = document.getElementById('berandaDrilldown');
+  renderDrilldownTable('berandaDrilldown', rows, label);
+}
+// Generik - dipakai baik oleh drilldown Beranda (panel #berandaDrilldown) maupun
+// Dashboard Kepala Bengkel (panel #kabDrilldown), supaya definisi kolom tabel detail
+// selalu sama persis di kedua tempat.
+function renderDrilldownTable(panelId, rows, label){
+  const panel = document.getElementById(panelId);
   if(!panel) return;
+  const tableId = panelId + 'Table';
   panel.innerHTML = `<div class="card" style="margin-top:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <h4 style="margin:0;">Detail: ${escapeHtml(label)}</h4>
-      <button type="button" class="secondary" onclick="document.getElementById('berandaDrilldown').innerHTML=''">Tutup</button>
+      <button type="button" class="secondary" onclick="document.getElementById('${panelId}').innerHTML=''">Tutup</button>
     </div>
-    <div id="berandaDrilldownTable"></div>
+    <div id="${tableId}"></div>
   </div>`;
-  dtInit('berandaDrilldownTable', rows, [
+  dtInit(tableId, rows, [
     { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
     { key:'Nama_Customer', label:'Customer', filterable:true, filterType:'text' },
     { key:'Tanggal_Masuk', label:'Tanggal', filterable:false, render:r=>r.Tanggal_Masuk?toDateInputValue(r.Tanggal_Masuk):'-' },
@@ -2081,6 +2141,30 @@ function dealBelumDatangCardHtml(r){
       <button type="button" class="primary" onclick="saveKedatangan('${r.ID_Kunjungan}')">Simpan Kedatangan</button>
     </div>`;
 }
+// Kelompokkan kunjungan seorang SA (atau semua SA kalau saName falsy) ke bucket-bucket
+// antrian Follow Up - dipakai baik oleh layar Follow Up SA sendiri maupun rekap total/
+// breakdown per SA di Dashboard Kepala Bengkel, supaya definisi "perlu follow up hari
+// ini/lewat jatuh tempo/dst" selalu identik di kedua tempat.
+function computeFollowUpBuckets(rows, saName){
+  const todayStr = toDateInputValue(new Date());
+  // Tidak Deal langsung final ("No Deal") - tidak lagi diantre ulang, jadi hanya status
+  // "Belum" yang masih aktif menunggu tindakan SA. "Tidak Deal" tetap dicek di sini supaya
+  // data lama (sebelum perubahan ini) yang masih berstatus "Tidak Deal" tidak nyangkut di
+  // antrian aktif - langsung dianggap setara "No Deal" juga.
+  const mine = rows.filter(r=>(!saName || r.SA===saName) && r.Status==='Report Terkirim' && r.FollowUp_Dikonfirmasi==='Ya' && r.Perlu_FollowUp!=='Tidak');
+  const pending = mine.filter(r=>(r.Status_FollowUp||'Belum') === 'Belum');
+  const rencanaStr = r => toDateInputValue(r.Tanggal_FollowUp_Rencana);
+  const konfirmasi = rows.filter(r=>(!saName || r.SA===saName) && r.Status==='Report Terkirim' && r.FollowUp_Dikonfirmasi!=='Ya' && r.Perlu_FollowUp!=='Tidak');
+  return {
+    konfirmasi,
+    hari: pending.filter(r=>rencanaStr(r) === todayStr),
+    overdue: pending.filter(r=>rencanaStr(r) && rencanaStr(r) < todayStr),
+    upcoming: pending.filter(r=>rencanaStr(r) && rencanaStr(r) > todayStr),
+    dealBelumDatang: mine.filter(r=>r.Status_FollowUp === 'Deal - Belum Datang'),
+    dealMinggu: mine.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang' && isThisWeek(r.Tanggal_Kedatangan_Aktual)),
+    noDeal: mine.filter(r=>r.Status_FollowUp==='No Deal' || r.Status_FollowUp==='Tidak Deal')
+  };
+}
 let followUpState = { filter: null, rows: [] };
 async function renderFollowUp(app){
   if(!requireSA(app)) return;
@@ -2088,21 +2172,7 @@ async function renderFollowUp(app){
   const rows = await api('listKunjungan');
   const list = document.getElementById('list');
   if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
-  const todayStr = toDateInputValue(new Date());
-  const mine = rows.filter(r=>r.SA===currentSA && r.Status==='Report Terkirim' && r.FollowUp_Dikonfirmasi==='Ya' && r.Perlu_FollowUp!=='Tidak');
-  // Tidak Deal langsung final ("No Deal") - tidak lagi diantre ulang, jadi hanya status
-  // "Belum" yang masih aktif menunggu tindakan SA. "Tidak Deal" tetap dicek di sini supaya
-  // data lama (sebelum perubahan ini) yang masih berstatus "Tidak Deal" tidak nyangkut di
-  // antrian aktif - langsung dianggap setara "No Deal" juga.
-  const pending = mine.filter(r=>(r.Status_FollowUp||'Belum') === 'Belum');
-  const rencanaStr = r => toDateInputValue(r.Tanggal_FollowUp_Rencana);
-  const todayList = pending.filter(r=>rencanaStr(r) === todayStr);
-  const overdueList = pending.filter(r=>rencanaStr(r) && rencanaStr(r) < todayStr);
-  const upcomingList = pending.filter(r=>rencanaStr(r) && rencanaStr(r) > todayStr);
-  const dealBelumDatang = mine.filter(r=>r.Status_FollowUp === 'Deal - Belum Datang');
-  const dealMingguList = mine.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang' && isThisWeek(r.Tanggal_Kedatangan_Aktual));
-  const noDealList = mine.filter(r=>r.Status_FollowUp==='No Deal' || r.Status_FollowUp==='Tidak Deal');
-  const pendingConfirmCount = rows.filter(r=>r.Status==='Report Terkirim' && r.SA===currentSA && r.FollowUp_Dikonfirmasi!=='Ya' && r.Perlu_FollowUp!=='Tidak').length;
+  const b = computeFollowUpBuckets(rows, currentSA);
 
   // Baris "Belum" yang punya Alasan_ReFollowUp berarti sudah pernah di-follow-up dan
   // dijadwalkan ulang oleh SA (bukan follow up pertama) - ditandai beda supaya kelihatan.
@@ -2114,24 +2184,24 @@ async function renderFollowUp(app){
       _isRefollow: isRefollow };
   });
   followUpState.rows = [
-    ...decorate(todayList, 'hari', 'Hari Ini', 'wait'),
-    ...decorate(overdueList, 'overdue', 'Lewat Jatuh Tempo', 'overdue'),
-    ...decorate(upcomingList, 'upcoming', 'Belum Jatuh Tempo', 'wait'),
-    ...decorate(dealBelumDatang, 'dealBelumDatang', 'Deal - Belum Datang', 'sent'),
-    ...decorate(dealMingguList, 'dealMinggu', 'Deal - Sudah Datang', 'sent'),
-    ...decorate(noDealList, 'noDeal', 'No Deal', 'overdue')
+    ...decorate(b.hari, 'hari', 'Hari Ini', 'wait'),
+    ...decorate(b.overdue, 'overdue', 'Lewat Jatuh Tempo', 'overdue'),
+    ...decorate(b.upcoming, 'upcoming', 'Belum Jatuh Tempo', 'wait'),
+    ...decorate(b.dealBelumDatang, 'dealBelumDatang', 'Deal - Belum Datang', 'sent'),
+    ...decorate(b.dealMinggu, 'dealMinggu', 'Deal - Sudah Datang', 'sent'),
+    ...decorate(b.noDeal, 'noDeal', 'No Deal', 'overdue')
   ];
   followUpState.filter = null;
 
   list.innerHTML = `
     <div class="kpi" style="margin-bottom:22px;">
-      <div class="box filterable" data-key="konfirmasi" onclick="goToKonfirmasiSA()" title="Buka menu Perlu Dikonfirmasi"><div class="num">${pendingConfirmCount}</div><div class="lbl">Perlu Dikonfirmasi</div></div>
-      <div class="box warning filterable" data-key="hari" onclick="setFollowUpFilter('hari')"><div class="num">${todayList.length}</div><div class="lbl">Perlu Follow Up Hari Ini</div></div>
-      <div class="box filterable" data-key="overdue" onclick="setFollowUpFilter('overdue')"><div class="num">${overdueList.length}</div><div class="lbl">Lewat Jatuh Tempo</div></div>
-      <div class="box filterable" data-key="upcoming" onclick="setFollowUpFilter('upcoming')"><div class="num">${upcomingList.length}</div><div class="lbl">Belum Jatuh Tempo</div></div>
-      <div class="box info filterable" data-key="dealBelumDatang" onclick="setFollowUpFilter('dealBelumDatang')"><div class="num">${dealBelumDatang.length}</div><div class="lbl">Deal Belum Datang</div></div>
-      <div class="box success filterable" data-key="dealMinggu" onclick="setFollowUpFilter('dealMinggu')"><div class="num">${dealMingguList.length}</div><div class="lbl">Deal Minggu Ini</div></div>
-      <div class="box filterable" data-key="noDeal" onclick="setFollowUpFilter('noDeal')"><div class="num">${noDealList.length}</div><div class="lbl">No Deal</div></div>
+      <div class="box filterable" data-key="konfirmasi" onclick="goToKonfirmasiSA()" title="Buka menu Perlu Dikonfirmasi"><div class="num">${b.konfirmasi.length}</div><div class="lbl">Perlu Dikonfirmasi</div></div>
+      <div class="box warning filterable" data-key="hari" onclick="setFollowUpFilter('hari')"><div class="num">${b.hari.length}</div><div class="lbl">Perlu Follow Up Hari Ini</div></div>
+      <div class="box filterable" data-key="overdue" onclick="setFollowUpFilter('overdue')"><div class="num">${b.overdue.length}</div><div class="lbl">Lewat Jatuh Tempo</div></div>
+      <div class="box filterable" data-key="upcoming" onclick="setFollowUpFilter('upcoming')"><div class="num">${b.upcoming.length}</div><div class="lbl">Belum Jatuh Tempo</div></div>
+      <div class="box info filterable" data-key="dealBelumDatang" onclick="setFollowUpFilter('dealBelumDatang')"><div class="num">${b.dealBelumDatang.length}</div><div class="lbl">Deal Belum Datang</div></div>
+      <div class="box success filterable" data-key="dealMinggu" onclick="setFollowUpFilter('dealMinggu')"><div class="num">${b.dealMinggu.length}</div><div class="lbl">Deal Minggu Ini</div></div>
+      <div class="box filterable" data-key="noDeal" onclick="setFollowUpFilter('noDeal')"><div class="num">${b.noDeal.length}</div><div class="lbl">No Deal</div></div>
     </div>
     <p class="note">Klik salah satu kartu di atas untuk memfilter tabel di bawah; klik lagi kartu yang sama untuk menampilkan semua. Klik "Update" pada baris untuk mengubah status follow up-nya - baris lain tidak akan terbuka.</p>
     <div id="followUpEditPanel"></div>
@@ -2376,68 +2446,212 @@ async function renderRiwayatCheck(app){
   ], 'Timestamp', 'Belum ada riwayat.');
 }
 
-/* ---------- KEPALA BENGKEL: dashboard ---------- */
-let dashboardState = { rows: [], filter: 'total' };
+/* ---------- DASHBOARD KEPALA BENGKEL - disinkronkan dengan Beranda: sama-sama
+   pakai listKunjungan/listItemJasa/listItemSaran mentah + fungsi buildBeranda*
+   sehingga funnel/opportunity di sini dijamin sama persis dengan Beranda, hanya
+   ditambah breakdown per SA dan rekap total dashboard Follow Up SA. ---------- */
+let kabState = { rows: [], itemsJasa: [], itemsSaran: [], disarankanIds: null, filter: 'overall', dashboard: null };
 async function renderDashboard(app){
-  app.innerHTML = `<div id="dash">Memuat...</div>`;
-  const [d, rows] = await Promise.all([api('dashboard'), api('listKunjungan')]);
-  const dash = document.getElementById('dash');
-  if(!dash) return;
-  if(d.demo || rows.demo){ dash.innerHTML='<p class="note">Demo mode - hubungkan API untuk data real.</p>'; return; }
-  dashboardState = { rows, filter: 'total' };
-  let html = `<div class="kpi" style="margin-bottom:16px;">
-    <div class="box filterable active" data-key="total" onclick="setDashboardFilter('total')"><div class="num">${d.totalKunjungan}</div><div class="lbl">Total Kunjungan</div></div>
-    <div class="box filterable" data-key="hari" onclick="setDashboardFilter('hari')"><div class="num">${d.totalCustomer.hariIni}</div><div class="lbl">Customer Hari Ini</div></div>
-    <div class="box filterable" data-key="minggu" onclick="setDashboardFilter('minggu')"><div class="num">${d.totalCustomer.mingguIni}</div><div class="lbl">Customer Minggu Ini</div></div>
-    <div class="box filterable" data-key="bulan" onclick="setDashboardFilter('bulan')"><div class="num">${d.totalCustomer.bulanIni}</div><div class="lbl">Customer Bulan Ini</div></div>
-  </div>
-  <div class="card"><h3>Rekap per Service Advisor</h3>
-  <table><tr><th>SA</th><th>Unit Disarankan Hari Ini</th><th>Unit Disarankan Minggu Ini</th><th>Unit Disarankan Bulan Ini</th><th>Deal</th><th>Tidak Deal</th></tr>`;
-  Object.entries(d.perSA).forEach(([sa,v])=>{
-    html += `<tr><td>${escapeHtml(sa)}</td><td>${v.hari}</td><td>${v.minggu}</td><td>${v.bulan}</td><td>${v.deal}</td><td>${v.tidakDeal}</td></tr>`;
-  });
-  html += `</table></div>
-  <div class="card"><h3>Daftar Kunjungan</h3><p class="note">Klik salah satu kartu di atas untuk memfilter tabel ini; klik lagi kartu yang sama untuk menampilkan semua.</p><div id="dashboardTable"></div></div>
-  <div class="card" style="margin-top:16px;"><h3>Opportunity</h3>
-  <p class="note">Sama seperti di Beranda - unit yang ada saran perbaikan (Opportunity: masih menunggu, Lost: customer bilang No Deal, Won: berhasil didatangkan kembali).</p>
-  <div class="kpi">
-    <div class="box info"><div class="num">${d.opportunity.unit}</div><div class="lbl">Opportunity Unit</div><div class="note" style="margin-top:6px;">${formatRupiah(d.opportunity.revenue)}</div></div>
-    <div class="box"><div class="num">${d.lostOpportunity.unit}</div><div class="lbl">Lost Opportunity Unit</div><div class="note" style="margin-top:6px;">${formatRupiah(d.lostOpportunity.revenue)}</div></div>
-    <div class="box success"><div class="num">${d.wonOpportunity.unit}</div><div class="lbl">Won Opportunity Unit</div><div class="note" style="margin-top:6px;">${formatRupiah(d.wonOpportunity.revenue)}</div></div>
-  </div></div>
-  <div class="card" style="margin-top:16px;"><h3>Free Check Up AC &amp; Spooring</h3>
-  <div class="kpi">
-    <div class="box"><div class="num">${d.totalCheckAC.total}</div><div class="lbl">Total Check Up AC</div></div>
-    <div class="box"><div class="num">${d.totalCheckAC.hariIni}</div><div class="lbl">Check Up AC Hari Ini</div></div>
-    <div class="box"><div class="num">${d.totalCheckSpooring.total}</div><div class="lbl">Total Check Spooring</div></div>
-    <div class="box"><div class="num">${d.totalCheckSpooring.hariIni}</div><div class="lbl">Check Spooring Hari Ini</div></div>
-  </div></div>`;
-  dash.innerHTML = html;
-  renderDashboardTable();
+  app.innerHTML = `<div class="card"><p class="note">Memuat dashboard...</p></div>`;
+  const [d, rows, itemsJasa, itemsSaran] = await Promise.all([
+    api('dashboard'), api('listKunjungan'), api('listItemJasa'), api('listItemSaran')
+  ]);
+  if(!document.getElementById('app')) return;
+  if(d.demo || rows.demo || itemsJasa.demo || itemsSaran.demo){
+    app.innerHTML = '<div class="card"><p class="note">Demo mode - hubungkan API untuk data real.</p></div>';
+    return;
+  }
+  kabState.dashboard = d;
+  kabState.rows = rows;
+  kabState.itemsJasa = itemsJasa;
+  kabState.itemsSaran = itemsSaran;
+  kabState.disarankanIds = berandaDisarankanIds(itemsJasa, itemsSaran);
+  renderKabengkelContent(app);
 }
-function setDashboardFilter(key){
-  dashboardState.filter = (dashboardState.filter === key && key !== 'total') ? 'total' : key;
-  const activeKey = dashboardState.filter;
-  [...document.querySelectorAll('.kpi .box.filterable')].forEach(b=>{
-    b.classList.toggle('active', b.dataset.key === activeKey);
-  });
-  renderDashboardTable();
+function setKabFilter(key){
+  kabState.filter = key;
+  const panel = document.getElementById('kabDrilldown');
+  if(panel) panel.innerHTML = '';
+  renderKabengkelContent(document.getElementById('app'));
 }
-function renderDashboardTable(){
+function kabFunnelPerSA(rows, disarankanIds){
+  return berandaSaUniverse(rows).map(sa=>({
+    sa, funnel: buildBerandaFunnel(rows.filter(r=>(r.SA||'(Tanpa SA)')===sa), disarankanIds)
+  }));
+}
+function kabOpportunityPerSA(rows, itemsJasa, itemsSaran, disarankanIds){
+  return berandaSaUniverse(rows).map(sa=>{
+    const subset = rows.filter(r=>(r.SA||'(Tanpa SA)')===sa);
+    return {
+      sa,
+      opportunity: buildBerandaOpportunity(subset, itemsJasa, itemsSaran, disarankanIds),
+      lost: buildBerandaLostOpportunity(subset, itemsJasa, itemsSaran, disarankanIds),
+      won: buildBerandaWonOpportunity(subset, itemsJasa, itemsSaran, disarankanIds)
+    };
+  });
+}
+function kabFollowUpPerSA(rows){
+  return berandaSaUniverse(rows).map(sa=>({ sa, b: computeFollowUpBuckets(rows, sa) }));
+}
+function kabFunnelTableHtml(perSA){
+  const rowsHtml = perSA.map(({sa,funnel})=>{
+    const cells = funnel.map(f=>`<td class="clickable" data-sa="${escapeHtml(sa)}" data-stage="${f.key}" data-label="${escapeHtml(f.label)} - ${escapeHtml(sa)}">${f.count}</td>`).join('');
+    return `<tr><td>${escapeHtml(sa)}</td>${cells}</tr>`;
+  }).join('') || `<tr><td colspan="6" class="note">Tidak ada data.</td></tr>`;
+  const heads = ['Unit Dikerjakan','Unit Disarankan','Sudah Follow Up','Deal','Deal - Sudah Datang'].map(l=>`<th>${l}</th>`).join('');
+  return `<div class="breakdown-table"><table><thead><tr><th>SA</th>${heads}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+}
+function kabOpportunityTableHtml(perSA){
+  const rowsHtml = perSA.map(row=>`<tr>
+    <td>${escapeHtml(row.sa)}</td>
+    <td class="clickable" data-sa="${escapeHtml(row.sa)}" data-stage="opportunity" data-label="Opportunity - ${escapeHtml(row.sa)}">${row.opportunity.unit} unit<br><span class="note">${formatRupiah(row.opportunity.revenue)}</span></td>
+    <td class="clickable" data-sa="${escapeHtml(row.sa)}" data-stage="lostOpportunity" data-label="Lost Opportunity - ${escapeHtml(row.sa)}">${row.lost.unit} unit<br><span class="note">${formatRupiah(row.lost.revenue)}</span></td>
+    <td class="clickable" data-sa="${escapeHtml(row.sa)}" data-stage="wonOpportunity" data-label="Won Opportunity - ${escapeHtml(row.sa)}">${row.won.unit} unit<br><span class="note">${formatRupiah(row.won.revenue)}</span></td>
+  </tr>`).join('') || `<tr><td colspan="4" class="note">Tidak ada data.</td></tr>`;
+  return `<div class="breakdown-table"><table><thead><tr><th>SA</th><th>Opportunity</th><th>Lost Opportunity</th><th>Won Opportunity</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+}
+const KAB_FU_COLS = [['konfirmasi','Perlu Dikonfirmasi'],['hari','Follow Up Hari Ini'],['overdue','Lewat Jatuh Tempo'],
+  ['upcoming','Belum Jatuh Tempo'],['dealBelumDatang','Deal Belum Datang'],['dealMinggu','Deal Minggu Ini'],['noDeal','No Deal']];
+function kabFollowUpTableHtml(perSA){
+  const rowsHtml = perSA.map(({sa,b})=>{
+    const cells = KAB_FU_COLS.map(([key,label])=>`<td class="clickable" data-sa="${escapeHtml(sa)}" data-fukey="${key}" data-label="${label} - ${escapeHtml(sa)}">${b[key].length}</td>`).join('');
+    return `<tr><td>${escapeHtml(sa)}</td>${cells}</tr>`;
+  }).join('') || `<tr><td colspan="8" class="note">Tidak ada data.</td></tr>`;
+  return `<div class="breakdown-table"><table><thead><tr><th>SA</th>${KAB_FU_COLS.map(([,l])=>`<th>${l}</th>`).join('')}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+}
+function showKabDrilldown(key, label){
+  const filtered = berandaFilterRows(kabState.rows, kabState.filter);
+  const rows = berandaRowsForStage(filtered, kabState.disarankanIds, key);
+  renderDrilldownTable('kabDrilldown', rows, label);
+}
+function showKabDrilldownSA(saName, key, label){
+  const filtered = berandaFilterRows(kabState.rows, kabState.filter).filter(r=>(r.SA||'(Tanpa SA)')===saName);
+  const rows = berandaRowsForStage(filtered, kabState.disarankanIds, key);
+  renderDrilldownTable('kabDrilldown', rows, label);
+}
+// Rekap Follow Up SA sengaja TIDAK ikut filter periode Hari/Minggu/Bulan di atas - ini
+// snapshot antrian follow up "saat ini" (persis definisi di layar Follow Up milik SA
+// sendiri), bukan unit yang masuk bengkel pada periode tertentu.
+function showKabFollowUpDrilldown(saName, fuKey, label){
+  const b = computeFollowUpBuckets(kabState.rows, saName || null);
+  renderDrilldownTable('kabDrilldown', b[fuKey], label);
+}
+function bindKabBreakdownClicks(containerId, onCell){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  [...el.querySelectorAll('td.clickable')].forEach(td=>{
+    td.addEventListener('click', ()=> onCell(td.dataset));
+  });
+}
+function renderKabengkelContent(app){
+  const d = kabState.dashboard;
+  const filtered = berandaFilterRows(kabState.rows, kabState.filter);
+  const disarankanIds = kabState.disarankanIds;
+  const funnel = buildBerandaFunnel(filtered, disarankanIds);
+  const opportunity = buildBerandaOpportunity(filtered, kabState.itemsJasa, kabState.itemsSaran, disarankanIds);
+  const lostOpportunity = buildBerandaLostOpportunity(filtered, kabState.itemsJasa, kabState.itemsSaran, disarankanIds);
+  const wonOpportunity = buildBerandaWonOpportunity(filtered, kabState.itemsJasa, kabState.itemsSaran, disarankanIds);
+  const funnelPerSA = kabFunnelPerSA(filtered, disarankanIds);
+  const opportunityPerSA = kabOpportunityPerSA(filtered, kabState.itemsJasa, kabState.itemsSaran, disarankanIds);
+  const fuTotal = computeFollowUpBuckets(kabState.rows, null);
+  const fuPerSA = kabFollowUpPerSA(kabState.rows);
+  const filterBtn = (key,label) => `<button type="button" class="secondary" onclick="setKabFilter('${key}')" style="${kabState.filter===key?'background:var(--primary-50);color:var(--primary-700);font-weight:600;':''}">${label}</button>`;
+
+  app.innerHTML = `
+    <div class="card">
+      <h3>Dashboard Kepala Bengkel</h3>
+      <p class="note">Sinkron dengan Beranda. Klik kartu funnel/opportunity/follow up atau sel breakdown per SA untuk lihat daftar unitnya.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        ${filterBtn('hari','Hari Ini')}
+        ${filterBtn('minggu','Minggu Ini')}
+        ${filterBtn('bulan','Bulan Ini')}
+        ${filterBtn('overall','Semua')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3>Funnel Unit</h3>
+      <div class="kpi">
+        ${funnel.map(f=>`
+          <div class="box filterable" style="cursor:pointer;" onclick='showKabDrilldown("${f.key}", "${escapeHtml(f.label)}")'>
+            <div class="num">${f.count}</div>
+            <div class="lbl">${f.label}</div>
+          </div>`).join('')}
+      </div>
+      <div class="chart-wrap"><canvas id="kabFunnelChart"></canvas></div>
+      <h4 style="margin-top:18px;">Breakdown per SA</h4>
+      <div id="kabFunnelPerSA">${kabFunnelTableHtml(funnelPerSA)}</div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3>Opportunity</h3>
+      <p class="note">Sama seperti di Beranda - unit yang ada saran perbaikan (Opportunity: masih menunggu, Lost: customer bilang No Deal, Won: berhasil didatangkan kembali).</p>
+      <div class="kpi">
+        <div class="box filterable info" style="cursor:pointer;" onclick="showKabDrilldown('opportunity', 'Opportunity - Belum Deal')">
+          <div class="num">${opportunity.unit}</div>
+          <div class="lbl">Opportunity Unit</div>
+          <div class="note" style="margin-top:6px;">${formatRupiah(opportunity.revenue)}</div>
+        </div>
+        <div class="box filterable" style="cursor:pointer;" onclick="showKabDrilldown('lostOpportunity', 'Lost Opportunity - No Deal')">
+          <div class="num">${lostOpportunity.unit}</div>
+          <div class="lbl">Lost Opportunity Unit</div>
+          <div class="note" style="margin-top:6px;">${formatRupiah(lostOpportunity.revenue)}</div>
+        </div>
+        <div class="box filterable success" style="cursor:pointer;" onclick="showKabDrilldown('wonOpportunity', 'Won Opportunity - Sudah Datang')">
+          <div class="num">${wonOpportunity.unit}</div>
+          <div class="lbl">Won Opportunity Unit</div>
+          <div class="note" style="margin-top:6px;">${formatRupiah(wonOpportunity.revenue)}</div>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="kabOppChart"></canvas></div>
+      <h4 style="margin-top:18px;">Breakdown per SA</h4>
+      <div id="kabOppPerSA">${kabOpportunityTableHtml(opportunityPerSA)}</div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3>Rekap Dashboard Follow Up SA</h3>
+      <p class="note">Snapshot antrian Follow Up seluruh SA saat ini (tidak mengikuti filter periode di atas) - persis seperti yang dilihat masing-masing SA di menu Follow Up mereka.</p>
+      <div class="kpi">
+        ${KAB_FU_COLS.map(([key,label])=>`
+          <div class="box filterable" style="cursor:pointer;" onclick="showKabFollowUpDrilldown('', '${key}', '${label}')">
+            <div class="num">${fuTotal[key].length}</div>
+            <div class="lbl">${label}</div>
+          </div>`).join('')}
+      </div>
+      <h4 style="margin-top:18px;">Breakdown per SA</h4>
+      <div id="kabFuPerSA">${kabFollowUpTableHtml(fuPerSA)}</div>
+    </div>
+
+    <div class="card" style="margin-top:16px;"><h3>Daftar Kunjungan</h3><p class="note">Mengikuti filter periode di atas.</p><div id="dashboardTable"></div></div>
+
+    <div class="card" style="margin-top:16px;"><h3>Free Check Up AC &amp; Spooring</h3>
+    <div class="kpi">
+      <div class="box"><div class="num">${d.totalCheckAC.total}</div><div class="lbl">Total Check Up AC</div></div>
+      <div class="box"><div class="num">${d.totalCheckAC.hariIni}</div><div class="lbl">Check Up AC Hari Ini</div></div>
+      <div class="box"><div class="num">${d.totalCheckSpooring.total}</div><div class="lbl">Total Check Spooring</div></div>
+      <div class="box"><div class="num">${d.totalCheckSpooring.hariIni}</div><div class="lbl">Check Spooring Hari Ini</div></div>
+    </div></div>
+
+    <div id="kabDrilldown"></div>
+  `;
+  renderDashboardTable(filtered);
+  renderBarChart('kabFunnelChart', funnel.map(f=>f.label), funnel.map(f=>f.count), CHART_COLOR_FUNNEL);
+  renderBarChart('kabOppChart', ['Opportunity','Lost Opportunity','Won Opportunity'],
+    [opportunity.unit, lostOpportunity.unit, wonOpportunity.unit], CHART_COLORS_OPPORTUNITY);
+  bindKabBreakdownClicks('kabFunnelPerSA', ds => showKabDrilldownSA(ds.sa, ds.stage, ds.label));
+  bindKabBreakdownClicks('kabOppPerSA', ds => showKabDrilldownSA(ds.sa, ds.stage, ds.label));
+  bindKabBreakdownClicks('kabFuPerSA', ds => showKabFollowUpDrilldown(ds.sa, ds.fukey, ds.label));
+}
+function renderDashboardTable(filtered){
   if(!document.getElementById('dashboardTable')) return;
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfWeek = new Date(startOfDay.getTime() - startOfDay.getDay()*86400000);
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const threshold = { hari: startOfDay, minggu: startOfWeek, bulan: startOfMonth, total: null }[dashboardState.filter];
-  const filtered = threshold ? dashboardState.rows.filter(r=>new Date(r.Tanggal_Masuk) >= threshold) : dashboardState.rows;
   dtInit('dashboardTable', filtered, [
     { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
     { key:'Nama_Customer', label:'Customer', filterable:true, filterType:'text' },
     { key:'Tanggal_Masuk', label:'Tanggal', filterable:false, render:r=>r.Tanggal_Masuk?toDateInputValue(r.Tanggal_Masuk):'-' },
     { key:'SA', label:'SA', filterable:true, filterType:'select' },
     { key:'Teknisi', label:'Teknisi', filterable:true, filterType:'select' },
-    { key:'Status', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span>` }
+    { key:'Status', label:'Status', filterable:true, filterType:'select', render:r=>`<span class="badge ${statusBadgeClass(r.Status)}">${escapeHtml(r.Status)}</span>` },
+    { key:'Status_FollowUp', label:'Status Follow Up', filterable:true, filterType:'select' }
   ], 'Tanggal_Masuk');
 }
 async function renderSemua(app){
