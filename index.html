@@ -234,13 +234,13 @@ const TABS = {
   teknisi:   [["input","Input Saran Baru","plusCircle"],["riwayat","Riwayat Saya","clock"]],
   foreman:   [["antrian","Antrian Perlu Dilengkapi","clipboardList"],["riwayatForeman","Riwayat","clock"]],
   sa:        [["konfirmasi","Perlu Dikonfirmasi","checkCircle"],["followup","Follow Up","clock"],["laporan","Kirim Report Customer","documentText"]],
-  kabengkel: [["dashboard","Dashboard","buildingOffice"],["semua","Semua Kunjungan","clipboardList"]],
+  kabengkel: [["dashboard","Dashboard","buildingOffice"],["semua","Semua Kunjungan","clipboardList"],["kamus","Kelola Kamus","documentText"]],
   freecheck: [["checkac","Free Check Up AC","plusCircle"],["checkspooring","Free Check Spooring","plusCircle"],["riwayatcheck","Riwayat","clock"]],
 };
 const VIEW_TITLES = {
   input:"Input Saran Baru", riwayat:"Riwayat Saya", antrian:"Antrian Perlu Dilengkapi", riwayatForeman:"Riwayat",
   konfirmasi:"Perlu Dikonfirmasi", followup:"Follow Up", laporan:"Kirim Report Customer",
-  dashboard:"Dashboard", semua:"Semua Kunjungan",
+  dashboard:"Dashboard", semua:"Semua Kunjungan", kamus:"Kelola Kamus",
   checkac:"Free Check Up AC", checkspooring:"Free Check Spooring", riwayatcheck:"Riwayat",
   beranda:"Beranda"
 };
@@ -459,16 +459,17 @@ function render(view){
   if(view==='laporan') return renderLaporan(app);
   if(view==='dashboard') return renderDashboard(app);
   if(view==='semua') return renderSemua(app);
+  if(view==='kamus') return renderKelolaKamus(app);
   if(view==='checkac') return renderCheckAC(app);
   if(view==='checkspooring') return renderCheckSpooring(app);
   if(view==='riwayatcheck') return renderRiwayatCheck(app);
 }
 /* ---------- BERANDA (tampilan pembuka sebelum pilih role - dashboard interaktif) ---------- */
-let berandaState = { rows: [], itemsJasa: [], itemsSaran: [], filter: 'overall' };
+let berandaState = { rows: [], itemsJasa: [], itemsSaran: [], kamus: [], filter: 'overall' };
 async function renderBeranda(app){
   app.innerHTML = `<div class="card"><p class="note">Memuat dashboard...</p></div>`;
-  const [rows, itemsJasa, itemsSaran] = await Promise.all([
-    api('listKunjungan'), api('listItemJasa'), api('listItemSaran')
+  const [rows, itemsJasa, itemsSaran, kamus] = await Promise.all([
+    api('listKunjungan'), api('listItemJasa'), api('listItemSaran'), api('listKamus')
   ]);
   if(!document.getElementById('app')) return; // user sudah pindah role sebelum data selesai dimuat
   if(rows.demo || itemsJasa.demo || itemsSaran.demo){
@@ -478,6 +479,7 @@ async function renderBeranda(app){
   berandaState.rows = rows;
   berandaState.itemsJasa = itemsJasa;
   berandaState.itemsSaran = itemsSaran;
+  berandaState.kamus = Array.isArray(kamus) ? kamus : [];
   berandaState.disarankanIds = berandaDisarankanIds(itemsJasa, itemsSaran);
   renderBerandaContent(app);
 }
@@ -562,14 +564,21 @@ function berandaIsLost(status){
 function normalizeItemName(s){
   return (s||'').toLowerCase().trim().replace(/\s+/g,' ');
 }
-function topSuggestedItems(items, nameKey, idsAllowed, n){
+// kamusMap: normalisasi Teks_Asli -> Nama_Baku (lihat buildKamusMap) - kalau ada, dipakai
+// duluan sebagai nama kelompok; kalau tidak ada pemetaan, tetap fallback ke Opsi A (apa
+// adanya). Pencocokan SELALU persis (exact match setelah normalisasi teks), TIDAK fuzzy -
+// supaya hasil laporan deterministik; fuzzy matching cuma dipakai sebagai SARAN saat
+// mengisi kamus di layar Kelola Kamus (lihat bestKamusSuggestion), bukan saat runtime ini.
+function topSuggestedItems(items, nameKey, idsAllowed, n, kamusMap){
   const groups = new Map();
   items.forEach(it=>{
     const raw = (it[nameKey]||'').trim();
     if(!raw || !idsAllowed.has(it.ID_Kunjungan)) return;
     const norm = normalizeItemName(raw);
-    if(!groups.has(norm)) groups.set(norm, { label: raw, units: new Set(), qty: 0 });
-    const g = groups.get(norm);
+    const canonical = (kamusMap && kamusMap.get(norm)) || raw;
+    const key = normalizeItemName(canonical);
+    if(!groups.has(key)) groups.set(key, { label: canonical, units: new Set(), qty: 0 });
+    const g = groups.get(key);
     g.units.add(it.ID_Kunjungan);
     g.qty += Number(it.Qty) || 1;
   });
@@ -582,16 +591,72 @@ const TOP_ITEM_CAT_LABELS = {
   topPart: 'Part Paling Disarankan', topJasa: 'Jasa Paling Disarankan',
   topPartLost: 'Part Paling Banyak Lost', topPartWon: 'Part Paling Banyak Won'
 };
-function buildTopItems(filteredRows, itemsJasa, itemsSaran){
+function buildTopItems(filteredRows, itemsJasa, itemsSaran, kamusMap){
   const allIds = new Set(filteredRows.map(r=>r.ID_Kunjungan));
   const lostIds = new Set(filteredRows.filter(r=>berandaIsLost(r.Status_FollowUp)).map(r=>r.ID_Kunjungan));
   const wonIds = new Set(filteredRows.filter(r=>r.Status_FollowUp==='Deal - Sudah Datang').map(r=>r.ID_Kunjungan));
   return {
-    topPart: topSuggestedItems(itemsSaran, 'Nama_Komponen', allIds, 5),
-    topJasa: topSuggestedItems(itemsJasa, 'Nama_Jasa', allIds, 5),
-    topPartLost: topSuggestedItems(itemsSaran, 'Nama_Komponen', lostIds, 5),
-    topPartWon: topSuggestedItems(itemsSaran, 'Nama_Komponen', wonIds, 5)
+    topPart: topSuggestedItems(itemsSaran, 'Nama_Komponen', allIds, 5, kamusMap),
+    topJasa: topSuggestedItems(itemsJasa, 'Nama_Jasa', allIds, 5, kamusMap),
+    topPartLost: topSuggestedItems(itemsSaran, 'Nama_Komponen', lostIds, 5, kamusMap),
+    topPartWon: topSuggestedItems(itemsSaran, 'Nama_Komponen', wonIds, 5, kamusMap)
   };
+}
+// Kamus Nama Part/Jasa - lihat renderKelolaKamus(). buildKamusMap() dipakai saat
+// menghitung Top 5 (pencocokan persis); levenshteinDistance/textSimilarity/
+// bestKamusSuggestion cuma dipakai untuk MENYARANKAN saat mengisi kamus, manusia yang
+// memutuskan Simpan atau tidak (lihat diskusi Brake Pad vs Brake Shoe).
+function buildKamusMap(kamus){
+  const map = new Map();
+  // Toleran terhadap backend lama yang belum punya action=listKamus (sebelum di-deploy) -
+  // biar Top 5 tetap jalan pakai Opsi A (fallback), bukan malah bikin Beranda/Dashboard
+  // Kepala Bengkel error total gara-gara 1 fitur baru ini.
+  (Array.isArray(kamus) ? kamus : []).forEach(k=>{
+    if(k.Teks_Asli && k.Nama_Baku) map.set(normalizeItemName(k.Teks_Asli), k.Nama_Baku.trim());
+  });
+  return map;
+}
+function levenshteinDistance(a, b){
+  a = a || ''; b = b || '';
+  const m = a.length, n = b.length;
+  if(m === 0) return n;
+  if(n === 0) return m;
+  let prev = Array.from({length:n+1}, (_,j)=>j);
+  let curr = new Array(n+1);
+  for(let i=1;i<=m;i++){
+    curr[0] = i;
+    for(let j=1;j<=n;j++){
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      curr[j] = Math.min(curr[j-1]+1, prev[j]+1, prev[j-1]+cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+function textSimilarity(normA, normB){
+  if(!normA || !normB) return 0;
+  const maxLen = Math.max(normA.length, normB.length);
+  return maxLen === 0 ? 1 : 1 - levenshteinDistance(normA, normB) / maxLen;
+}
+function bestKamusSuggestion(rawNormalized, canonicalNames){
+  let best = null, bestScore = 0;
+  canonicalNames.forEach(name=>{
+    const score = textSimilarity(rawNormalized, normalizeItemName(name));
+    if(score > bestScore){ bestScore = score; best = name; }
+  });
+  return (best && bestScore >= 0.55) ? { name: best, score: bestScore } : null;
+}
+function computeUnmappedItems(items, nameKey, kamusMap){
+  const counts = new Map();
+  items.forEach(it=>{
+    const raw = (it[nameKey]||'').trim();
+    if(!raw) return;
+    const norm = normalizeItemName(raw);
+    if(kamusMap.has(norm)) return;
+    if(!counts.has(norm)) counts.set(norm, { label: raw, count: 0 });
+    counts.get(norm).count++;
+  });
+  return [...counts.values()].sort((a,b)=>b.count-a.count);
 }
 function topItemsHtml(title, list, cat){
   const rowsHtml = list.length ? list.map((item,i)=>`
@@ -681,7 +746,7 @@ function renderBerandaContent(app){
   const penambahanTeknisi = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Teknisi', disarankanIds);
   const penambahanForeman = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'Nama_Foreman', disarankanIds);
   const penambahanSA = buildBerandaPenambahan(filtered, berandaState.itemsJasa, berandaState.itemsSaran, 'SA', disarankanIds);
-  berandaState.topItems = buildTopItems(filtered, berandaState.itemsJasa, berandaState.itemsSaran);
+  berandaState.topItems = buildTopItems(filtered, berandaState.itemsJasa, berandaState.itemsSaran, buildKamusMap(berandaState.kamus));
   const filterBtn = (key,label) => `<button type="button" class="secondary" onclick="setBerandaFilter('${key}')" style="${berandaState.filter===key?'background:var(--primary-50);color:var(--primary-700);font-weight:600;':''}">${label}</button>`;
 
   app.innerHTML = `
@@ -2724,11 +2789,11 @@ async function renderRiwayatCheck(app){
    pakai listKunjungan/listItemJasa/listItemSaran mentah + fungsi buildBeranda*
    sehingga funnel/opportunity di sini dijamin sama persis dengan Beranda, hanya
    ditambah breakdown per SA dan rekap total dashboard Follow Up SA. ---------- */
-let kabState = { rows: [], itemsJasa: [], itemsSaran: [], disarankanIds: null, filter: 'overall', dashboard: null };
+let kabState = { rows: [], itemsJasa: [], itemsSaran: [], kamus: [], disarankanIds: null, filter: 'overall', dashboard: null };
 async function renderDashboard(app){
   app.innerHTML = `<div class="card"><p class="note">Memuat dashboard...</p></div>`;
-  const [d, rows, itemsJasa, itemsSaran] = await Promise.all([
-    api('dashboard'), api('listKunjungan'), api('listItemJasa'), api('listItemSaran')
+  const [d, rows, itemsJasa, itemsSaran, kamus] = await Promise.all([
+    api('dashboard'), api('listKunjungan'), api('listItemJasa'), api('listItemSaran'), api('listKamus')
   ]);
   if(!document.getElementById('app')) return;
   if(d.demo || rows.demo || itemsJasa.demo || itemsSaran.demo){
@@ -2739,6 +2804,7 @@ async function renderDashboard(app){
   kabState.rows = rows;
   kabState.itemsJasa = itemsJasa;
   kabState.itemsSaran = itemsSaran;
+  kabState.kamus = Array.isArray(kamus) ? kamus : [];
   kabState.disarankanIds = berandaDisarankanIds(itemsJasa, itemsSaran);
   renderKabengkelContent(app);
 }
@@ -2829,7 +2895,7 @@ function renderKabengkelContent(app){
   const opportunityPerSA = kabOpportunityPerSA(filtered, kabState.itemsJasa, kabState.itemsSaran, disarankanIds);
   const fuTotal = computeFollowUpBuckets(kabState.rows, null);
   const fuPerSA = kabFollowUpPerSA(kabState.rows);
-  kabState.topItems = buildTopItems(filtered, kabState.itemsJasa, kabState.itemsSaran);
+  kabState.topItems = buildTopItems(filtered, kabState.itemsJasa, kabState.itemsSaran, buildKamusMap(kabState.kamus));
   const filterBtn = (key,label) => `<button type="button" class="secondary" onclick="setKabFilter('${key}')" style="${kabState.filter===key?'background:var(--primary-50);color:var(--primary-700);font-weight:600;':''}">${label}</button>`;
 
   app.innerHTML = `
@@ -2973,6 +3039,104 @@ async function renderSemua(app){
   list.innerHTML = `<table><tr><th>No Polisi</th><th>Customer</th><th>SA</th><th>Teknisi</th><th>Status</th></tr>` +
     rows.map(r=>`<tr><td>${r.No_Polisi}</td><td>${r.Nama_Customer}</td><td>${r.SA}</td><td>${r.Teknisi}</td><td>${r.Status}</td></tr>`).join('') +
     `</table>`;
+}
+
+/* ---------- KEPALA BENGKEL: Kelola Kamus Nama Part/Jasa (lihat diskusi Top 5) ----------
+   Independen dari kabState Dashboard - tab ini bisa dibuka duluan tanpa mampir ke
+   Dashboard dulu, jadi ambil sendiri data yang dibutuhkan. */
+let kamusState = { itemsJasa: [], itemsSaran: [], kamus: [], tipeFilter: 'Part' };
+async function renderKelolaKamus(app){
+  app.innerHTML = `<div class="card"><p class="note">Memuat...</p></div>`;
+  const [itemsJasa, itemsSaran, kamus] = await Promise.all([
+    api('listItemJasa'), api('listItemSaran'), api('listKamus')
+  ]);
+  if(!document.getElementById('app')) return;
+  if(itemsJasa.demo || itemsSaran.demo || kamus.demo){
+    app.innerHTML = '<div class="card"><p class="note">Demo mode - hubungkan API untuk data real.</p></div>';
+    return;
+  }
+  if(!Array.isArray(kamus)){
+    app.innerHTML = '<div class="card"><p class="note">Backend belum mendukung fitur Kamus (action "listKamus" belum ada) - pastikan Code.gs versi terbaru sudah di-deploy.</p></div>';
+    return;
+  }
+  kamusState.itemsJasa = itemsJasa;
+  kamusState.itemsSaran = itemsSaran;
+  kamusState.kamus = kamus;
+  renderKelolaKamusContent(app);
+}
+function setKamusTipeFilter(tipe){
+  kamusState.tipeFilter = tipe;
+  renderKelolaKamusContent(document.getElementById('app'));
+}
+function renderKelolaKamusContent(app){
+  const kamusMap = buildKamusMap(kamusState.kamus);
+  const items = kamusState.tipeFilter === 'Part' ? kamusState.itemsSaran : kamusState.itemsJasa;
+  const nameKey = kamusState.tipeFilter === 'Part' ? 'Nama_Komponen' : 'Nama_Jasa';
+  const unmapped = computeUnmappedItems(items, nameKey, kamusMap);
+  const canonicalNames = [...new Set(kamusState.kamus.map(k=>k.Nama_Baku).filter(Boolean))];
+  const tipeBtn = (tipe) => `<button type="button" class="secondary" onclick="setKamusTipeFilter('${tipe}')" style="${kamusState.tipeFilter===tipe?'background:var(--primary-50);color:var(--primary-700);font-weight:600;':''}">${tipe}</button>`;
+
+  app.innerHTML = `
+    <div class="card">
+      <h3>Kelola Kamus Nama Part/Jasa</h3>
+      <p class="note">Kamus ini menyeragamkan variasi penulisan Teknisi (typo, singkatan, dst) supaya laporan "Top 5 Saran Perbaikan" di Beranda &amp; Dashboard tidak pecah-pecah. Sistem TIDAK PERNAH menggabungkan otomatis - setiap pemetaan wajib dikonfirmasi manual di sini, supaya nama yang mirip tapi sebenarnya part berbeda (mis. Brake Pad vs Brake Shoe) tidak salah tergabung.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        ${tipeBtn('Part')}
+        ${tipeBtn('Jasa')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3>Kosakata Belum Dikelompokkan (${kamusState.tipeFilter}) - ${unmapped.length}</h3>
+      <p class="note">Diurutkan dari yang paling sering muncul. Isi "Nama Baku" lalu Simpan untuk menambah ke kamus - kalau ada saran kemiripan dengan nama yang sudah ada di kamus, klik untuk pakai (tetap keputusan Anda, bukan otomatis).</p>
+      <div id="kamusUnmappedList"></div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3>Kamus Tersimpan</h3>
+      <div id="kamusTable"></div>
+    </div>
+  `;
+  renderKamusUnmappedList(unmapped, canonicalNames);
+  dtInit('kamusTable', kamusState.kamus, [
+    { key:'Teks_Asli', label:'Teks Asli', filterable:true, filterType:'text' },
+    { key:'Nama_Baku', label:'Nama Baku', filterable:true, filterType:'text' },
+    { key:'Tipe', label:'Tipe', filterable:true, filterType:'select' },
+    { key:'Dibuat_At', label:'Tanggal', filterable:false, render:r=>r.Dibuat_At?toDateInputValue(r.Dibuat_At):'-' },
+    { key:'aksi', label:'', sortable:false, filterable:false, render:r=>`<button type="button" class="secondary" onclick="deleteKamusEntry('${r.ID_Kamus}')">Hapus</button>` }
+  ], 'Dibuat_At', 'Belum ada kamus.');
+}
+function renderKamusUnmappedList(unmapped, canonicalNames){
+  const box = document.getElementById('kamusUnmappedList');
+  if(!box) return;
+  if(!unmapped.length){ box.innerHTML = '<p class="note">Semua kosakata sudah dipetakan.</p>'; return; }
+  box.innerHTML = unmapped.slice(0,50).map((u,i)=>{
+    const suggestion = bestKamusSuggestion(normalizeItemName(u.label), canonicalNames);
+    const inputId = `kamus-input-${i}`;
+    return `<div class="item-block">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div><b>${escapeHtml(u.label)}</b> <span class="note">(${u.count}x)</span></div>
+        ${suggestion ? `<button type="button" class="secondary" onclick="document.getElementById('${inputId}').value='${escapeHtml(suggestion.name)}'">Mirip: ${escapeHtml(suggestion.name)} (${Math.round(suggestion.score*100)}%) - Pakai</button>` : ''}
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <div><label>Nama Baku</label><input id="${inputId}" value="${escapeHtml(suggestion ? suggestion.name : u.label)}"></div>
+        <div style="align-self:flex-end;"><button type="button" class="primary" onclick="saveKamusEntry('${escapeHtml(u.label)}', '${inputId}')">Simpan ke Kamus</button></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function saveKamusEntry(teksAsli, inputId){
+  const namaBaku = document.getElementById(inputId).value.trim();
+  if(!namaBaku){ alert('Nama Baku wajib diisi'); return; }
+  const res = await api('addKamus', 'POST', { teksAsli, namaBaku, tipe: kamusState.tipeFilter });
+  if(res.success){ renderKelolaKamus(document.getElementById('app')); }
+  else alert('Gagal menyimpan: '+(res.error||'unknown error'));
+}
+async function deleteKamusEntry(id){
+  if(!confirm('Hapus pemetaan ini dari kamus?')) return;
+  const res = await api('deleteRow', 'POST', { sheet:'Kamus_Item', id });
+  if(res.success){ renderKelolaKamus(document.getElementById('app')); }
+  else alert('Gagal menghapus: '+(res.error||'unknown error'));
 }
 
 updateIdentitySwitches();
