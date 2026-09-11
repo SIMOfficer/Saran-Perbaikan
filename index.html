@@ -1007,8 +1007,13 @@ function sortRows(rows, key, dir){
 
 /* ---------- Tabel generik: sortable + filterable per kolom ---------- */
 const DT_REGISTRY = {};
-function dtInit(containerId, rows, columns, sortKey, emptyMsg){
-  DT_REGISTRY[containerId] = { rows, columns, filters: {}, sortKey, sortDir: 'desc', emptyMsg: emptyMsg || 'Tidak ada data.' };
+// previewSize: jumlah baris yang tampil sebelum diklik "Lihat Semua" (default 5).
+// perPage: setelah "Lihat Semua" diklik, tabel penuh dipecah per halaman isi 10 baris
+// (bukan langsung menampilkan ratusan baris sekaligus) - lihat dtPageSlice()/dtRender().
+function dtInit(containerId, rows, columns, sortKey, emptyMsg, previewSize){
+  DT_REGISTRY[containerId] = { rows, columns, filters: {}, sortKey, sortDir: 'desc',
+    emptyMsg: emptyMsg || 'Tidak ada data.', previewSize: previewSize || 5, perPage: 10,
+    expanded: false, page: 1 };
   dtRender(containerId);
 }
 function dtSort(containerId, key){
@@ -1016,13 +1021,58 @@ function dtSort(containerId, key){
   if(!st) return;
   if(st.sortKey === key) st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc';
   else { st.sortKey = key; st.sortDir = 'asc'; }
+  st.page = 1;
   dtRender(containerId);
 }
 function dtFilter(containerId, key, value){
   const st = DT_REGISTRY[containerId];
   if(!st) return;
   st.filters[key] = value;
+  st.page = 1;
   dtRender(containerId);
+}
+function dtExpand(containerId){
+  const st = DT_REGISTRY[containerId];
+  if(!st) return;
+  st.expanded = true;
+  st.page = 1;
+  dtRender(containerId);
+}
+function dtCollapse(containerId){
+  const st = DT_REGISTRY[containerId];
+  if(!st) return;
+  st.expanded = false;
+  dtRender(containerId);
+}
+function dtGoToPage(containerId, page){
+  const st = DT_REGISTRY[containerId];
+  if(!st) return;
+  st.page = page;
+  dtRender(containerId);
+}
+// Potong `filtered` jadi baris yang benar-benar ditampilkan saat ini, plus HTML kontrol
+// di bawah tabel (tombol "Lihat Semua" sebelum expand, atau navigasi halaman sesudahnya).
+function dtPageSlice(containerId, st, filtered){
+  if(!st.expanded){
+    const pageRows = filtered.slice(0, st.previewSize);
+    const sisa = filtered.length - pageRows.length;
+    const controlHtml = sisa > 0
+      ? `<div style="text-align:center;margin-top:10px;"><button type="button" class="secondary" onclick="dtExpand('${containerId}')">Lihat Semua (${filtered.length})</button></div>`
+      : '';
+    return { pageRows, controlHtml };
+  }
+  const totalPages = Math.max(1, Math.ceil(filtered.length / st.perPage));
+  if(st.page > totalPages) st.page = totalPages;
+  if(st.page < 1) st.page = 1;
+  const start = (st.page - 1) * st.perPage;
+  const pageRows = filtered.slice(start, start + st.perPage);
+  const controlHtml = `<div style="display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;">
+    <button type="button" class="secondary" ${st.page<=1?'disabled':''} onclick="dtGoToPage('${containerId}', ${st.page-1})">&larr; Sebelumnya</button>
+    <span class="note" style="margin:0;">Halaman ${st.page} dari ${totalPages}</span>
+    <button type="button" class="secondary" ${st.page>=totalPages?'disabled':''} onclick="dtGoToPage('${containerId}', ${st.page+1})">Berikutnya &rarr;</button>
+    <button type="button" class="secondary" onclick="dtCollapse('${containerId}')">Tampilkan Sedikit</button>
+  </div>`;
+  return { pageRows, controlHtml };
 }
 function dtComputeFiltered(st){
   let filtered = st.rows.filter(r => st.columns.every(col => {
@@ -1058,7 +1108,8 @@ function dtRender(containerId){
     }
     return `<th><input id="${fid}" style="padding:4px 6px;font-size:12px;" placeholder="Cari..." value="${escapeHtml(st.filters[col.key]||'')}" oninput="dtFilter('${containerId}','${col.key}',this.value)"></th>`;
   }).join('');
-  const bodyHtml = filtered.length ? filtered.map(r=>`<tr>${st.columns.map(col=>`<td>${col.render?col.render(r):escapeHtml(r[col.key]||'-')}</td>`).join('')}</tr>`).join('')
+  const { pageRows, controlHtml } = dtPageSlice(containerId, st, filtered);
+  const bodyHtml = pageRows.length ? pageRows.map(r=>`<tr>${st.columns.map(col=>`<td>${col.render?col.render(r):escapeHtml(r[col.key]||'-')}</td>`).join('')}</tr>`).join('')
     : `<tr><td colspan="${st.columns.length}"><p class="note">${st.emptyMsg}</p></td></tr>`;
 
   container.innerHTML = `
@@ -1068,7 +1119,8 @@ function dtRender(containerId){
       <tbody>${bodyHtml}</tbody>
     </table>
     </div>
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+    ${controlHtml}
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px;">
       <p class="note" style="margin:0;">${filtered.length} dari ${st.rows.length} data.</p>
       <button type="button" class="secondary" style="margin:0;" onclick="dtToggleExportPanel('${containerId}')">Export ke Excel</button>
     </div>
