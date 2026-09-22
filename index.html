@@ -2209,10 +2209,13 @@ let konfirmasiRows = [];
 async function renderKonfirmasiSA(app){
   if(!requireSA(app)) return;
   app.innerHTML = `<div class="card"><h3>Perlu Dikonfirmasi</h3><p class="note">Report yang baru sampai - klik "Cek &amp; Konfirmasi" untuk memeriksa/memperbaiki harga jasa dan part sebelum masuk ke follow up (kalau ada yang kosong/salah input dari Foreman), sesuaikan tanggal rencana follow up (default H+3), lalu konfirmasi. PDF report akan dibuat ulang dengan data terbaru.</p><div id="konfirmasiEditPanel"></div><div id="konfirmasiTable">Memuat...</div></div>`;
-  const rows = await api('listKunjungan');
+  // Scope ke SA yang login lewat param `sa` - Apps Script kirim balik cuma baris SA ini
+  // (bukan seluruh histori perusahaan lalu difilter di browser), payload lebih kecil &
+  // lebih cepat terutama kalau koneksi kantor sedang tidak ideal.
+  const rows = await api('listKunjungan', 'GET', { sa: currentSA });
   if(!document.getElementById('konfirmasiTable')) return;
   if(rows.demo){ document.getElementById('konfirmasiTable').innerHTML='<p class="note">Demo mode.</p>'; return; }
-  const pending = rows.filter(r=>r.Status==='Report Terkirim' && r.SA===currentSA && r.FollowUp_Dikonfirmasi!=='Ya' && r.Perlu_FollowUp!=='Tidak');
+  const pending = rows.filter(r=>r.Status==='Report Terkirim' && r.FollowUp_Dikonfirmasi!=='Ya' && r.Perlu_FollowUp!=='Tidak');
   konfirmasiRows = pending;
   dtInit('konfirmasiTable', pending, [
     { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
@@ -2560,7 +2563,9 @@ let followUpState = { filter: null, rows: [] };
 async function renderFollowUp(app){
   if(!requireSA(app)) return;
   app.innerHTML = `<div class="card"><h3>Follow Up Customer</h3><div id="list">Memuat...</div></div>`;
-  const rows = await api('listKunjungan');
+  // Scope ke SA yang login (lihat catatan di renderKonfirmasiSA) - lebih cepat & lebih
+  // ringan terutama saat koneksi kantor sedang tidak ideal.
+  const rows = await api('listKunjungan', 'GET', { sa: currentSA });
   const list = document.getElementById('list');
   if(rows.demo){ list.innerHTML='<p class="note">Demo mode.</p>'; return; }
   const b = computeFollowUpBuckets(rows, currentSA);
@@ -2711,11 +2716,11 @@ async function saveKedatangan(id){
 async function renderLaporan(app){
   if(!requireSA(app)) return;
   app.innerHTML = `<div class="card"><h3>Kunjungan Siap Dikirim ke Customer</h3><div id="laporanTable">Memuat...</div></div>`;
-  const rows = await api('listKunjungan');
+  // Scope ke SA yang login (lihat catatan di renderKonfirmasiSA).
+  const rows = await api('listKunjungan', 'GET', { sa: currentSA });
   if(!document.getElementById('laporanTable')) return;
   if(rows.demo){ document.getElementById('laporanTable').innerHTML = '<p class="note">Demo mode.</p>'; return; }
-  const mine = rows.filter(r=>r.SA===currentSA);
-  dtInit('laporanTable', mine, [
+  dtInit('laporanTable', rows, [
     { key:'No_Polisi', label:'No. Polisi', filterable:true, filterType:'text' },
     { key:'Nama_Customer', label:'Customer', filterable:true, filterType:'text' },
     { key:'Tanggal_Masuk', label:'Tanggal', filterable:false, render:r=>r.Tanggal_Masuk?toDateInputValue(r.Tanggal_Masuk):'-' },
