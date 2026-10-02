@@ -501,14 +501,51 @@ function berandaSaUniverse(rows){
   rows.forEach(r=> set.add(r.SA || '(Tanpa SA)'));
   return [...set].sort();
 }
+// filterKey biasa: 'overall'/'hari'/'minggu'/'bulan' (bulan berjalan). Tapi bisa juga
+// string "YYYY-MM" (mis. "2026-08") untuk pilih 1 bulan KALENDER tertentu secara eksplisit -
+// supaya analisa performa bulan lalu tidak harus bercampur dengan "Semua" (gabungan semua
+// bulan sejak awal pakai sistem). Lihat availableMonths()/monthLabel() untuk isi dropdownnya.
 function berandaFilterRows(rows, filterKey){
-  if(filterKey === 'overall') return rows;
+  if(!filterKey || filterKey === 'overall') return rows;
+  const monthMatch = /^(\d{4})-(\d{2})$/.exec(filterKey);
+  if(monthMatch){
+    const y = Number(monthMatch[1]), m = Number(monthMatch[2]);
+    const start = new Date(y, m-1, 1);
+    const end = new Date(y, m, 1);
+    return rows.filter(r=>r.Tanggal_Masuk && new Date(r.Tanggal_Masuk) >= start && new Date(r.Tanggal_Masuk) < end);
+  }
   const now = new Date();
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const startOfWeek = new Date(startOfDay.getTime() - startOfDay.getDay()*86400000);
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const threshold = { hari: startOfDay, minggu: startOfWeek, bulan: startOfMonth }[filterKey];
   return rows.filter(r=>r.Tanggal_Masuk && new Date(r.Tanggal_Masuk) >= threshold);
+}
+const MONTH_NAMES_ID = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+function monthLabel(ym){
+  const [y,m] = ym.split('-').map(Number);
+  return `${MONTH_NAMES_ID[m-1]} ${y}`;
+}
+// Daftar bulan kalender yang benar-benar punya data (diurutkan terbaru dulu) - dipakai
+// untuk isi dropdown "Pilih Bulan Lain" di Beranda & Dashboard Kepala Bengkel.
+function availableMonths(rows){
+  const set = new Set();
+  rows.forEach(r=>{
+    if(!r.Tanggal_Masuk) return;
+    const d = new Date(r.Tanggal_Masuk);
+    if(isNaN(d)) return;
+    set.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  });
+  return [...set].sort().reverse();
+}
+function monthPickerHtml(rows, currentFilter, onChangeFn){
+  const months = availableMonths(rows);
+  if(!months.length) return '';
+  const isMonthSelected = /^\d{4}-\d{2}$/.test(currentFilter);
+  return `<select onchange="${onChangeFn}(this.value)" style="width:auto;max-width:220px;">
+    <option value="">-- Pilih Bulan Lain --</option>
+    ${months.map(ym=>`<option value="${ym}" ${isMonthSelected && currentFilter===ym?'selected':''}>${monthLabel(ym)}</option>`).join('')}
+  </select>`;
 }
 function buildBerandaLeaderboard(rows, field){
   const counts = {};
@@ -753,11 +790,12 @@ function renderBerandaContent(app){
     <div class="card">
       <h3>Selamat Datang di DA-SAR</h3>
       <p class="note">Ringkasan performa seluruh unit yang tercatat di DA-SAR. Klik kartu funnel/leaderboard untuk lihat daftar unitnya.</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;">
         ${filterBtn('hari','Hari Ini')}
         ${filterBtn('minggu','Minggu Ini')}
         ${filterBtn('bulan','Bulan Ini')}
         ${filterBtn('overall','Semua')}
+        ${monthPickerHtml(berandaState.rows, berandaState.filter, 'setBerandaFilter')}
       </div>
     </div>
 
@@ -869,7 +907,7 @@ function renderBerandaContent(app){
     formatRupiah, oppDrilldown);
 }
 function setBerandaFilter(key){
-  berandaState.filter = key;
+  berandaState.filter = key || 'overall';
   const panel = document.getElementById('berandaDrilldown');
   if(panel) panel.innerHTML = '';
   renderBerandaContent(document.getElementById('app'));
@@ -2866,7 +2904,7 @@ async function renderDashboard(app){
   renderKabengkelContent(app);
 }
 function setKabFilter(key){
-  kabState.filter = key;
+  kabState.filter = key || 'overall';
   const panel = document.getElementById('kabDrilldown');
   if(panel) panel.innerHTML = '';
   renderKabengkelContent(document.getElementById('app'));
@@ -2959,11 +2997,12 @@ function renderKabengkelContent(app){
     <div class="card">
       <h3>Dashboard Kepala Bengkel</h3>
       <p class="note">Sinkron dengan Beranda. Klik kartu funnel/opportunity/follow up atau sel breakdown per SA untuk lihat daftar unitnya.</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;">
         ${filterBtn('hari','Hari Ini')}
         ${filterBtn('minggu','Minggu Ini')}
         ${filterBtn('bulan','Bulan Ini')}
         ${filterBtn('overall','Semua')}
+        ${monthPickerHtml(kabState.rows, kabState.filter, 'setKabFilter')}
       </div>
     </div>
 
